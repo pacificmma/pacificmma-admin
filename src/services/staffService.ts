@@ -1,19 +1,17 @@
 import { db, auth } from './firebase';
 import {
   collection,
-  addDoc,
   getDocs,
   Timestamp,
   DocumentData,
   doc,
   setDoc,
-  deleteDoc,
+  updateDoc,
+  getDoc,
 } from 'firebase/firestore';
 import {
   createUserWithEmailAndPassword,
   updateProfile,
-  deleteUser,
-  signInWithEmailAndPassword,
 } from 'firebase/auth';
 import { httpsCallable } from 'firebase/functions';
 import { functions } from './firebase';
@@ -32,41 +30,11 @@ export interface StaffRecord {
   role: 'admin' | 'trainer' | 'staff';
   createdAt: Timestamp;
   uid: string;
+  isActive: boolean; // Yeni alan
+  deletedAt?: Timestamp; // Yeni alan
 }
 
-// Cloud Functions kullanarak staff oluştur (önerilen)
-export const createStaffSecure = async (data: StaffData) => {
-  try {
-    const createStaff = httpsCallable(functions, 'createStaff');
-    const result = await createStaff({
-      fullName: data.fullName,
-      email: data.email,
-      password: data.password,
-      role: data.role,
-    });
-
-    return result.data;
-  } catch (error: any) {
-    console.error('Error creating staff with Cloud Functions:', error);
-    
-    // Cloud Functions hatalarını client-friendly'e çevir
-    if (error.code === 'functions/permission-denied') {
-      throw new Error('Only administrators can create staff members');
-    } else if (error.code === 'functions/unauthenticated') {
-      throw new Error('You must be logged in to create staff members');
-    } else if (error.message?.includes('email-already-in-use')) {
-      throw new Error('This email address is already in use');
-    } else if (error.message?.includes('weak-password')) {
-      throw new Error('Password is too weak');
-    } else if (error.message?.includes('invalid-email')) {
-      throw new Error('Invalid email address');
-    }
-    
-    throw new Error(error.message || 'An error occurred while creating staff member');
-  }
-};
-
-// Fallback: Client-side oluşturma (daha az güvenli)
+// Staff oluşturma
 export const createStaff = async (data: StaffData) => {
   try {
     // 1. Firebase Authentication ile kullanıcı oluştur
@@ -90,6 +58,7 @@ export const createStaff = async (data: StaffData) => {
       role: data.role,
       createdAt: Timestamp.now(),
       uid: user.uid,
+      isActive: true, // Varsayılan olarak aktif
     };
 
     await setDoc(doc(db, 'staff', user.uid), staffData);
@@ -104,7 +73,7 @@ export const createStaff = async (data: StaffData) => {
   }
 };
 
-// Tüm staff'ları getir
+// Tüm aktif staff'ları getir
 export const getAllStaff = async (): Promise<StaffRecord[]> => {
   const staffRef = collection(db, 'staff');
   const snapshot = await getDocs(staffRef);
@@ -112,55 +81,86 @@ export const getAllStaff = async (): Promise<StaffRecord[]> => {
   const staffList: StaffRecord[] = [];
   snapshot.forEach((doc) => {
     const docData = doc.data() as DocumentData;
-    staffList.push({
-      id: doc.id,
-      fullName: docData.fullName,
-      email: docData.email,
-      role: docData.role,
-      createdAt: docData.createdAt,
-      uid: docData.uid,
-    });
+    
+    // Sadece aktif staff'ları göster
+    if (docData.isActive !== false) {
+      staffList.push({
+        id: doc.id,
+        fullName: docData.fullName,
+        email: docData.email,
+        role: docData.role,
+        createdAt: docData.createdAt,
+        uid: docData.uid,
+        isActive: docData.isActive ?? true,
+        deletedAt: docData.deletedAt,
+      });
+    }
   });
 
   return staffList;
 };
 
-// Cloud Functions kullanarak staff sil (önerilen)
-export const deleteStaffSecure = async (staffId: string) => {
+// Staff'ı devre dışı bırak (soft delete)
+export const deleteStaff = async (staffId: string) => {
   try {
-    const deleteStaff = httpsCallable(functions, 'deleteStaff');
-    const result = await deleteStaff({ staffId });
+    // Sadece Firestore'da isActive = false yap
+    await updateDoc(doc(db, 'staff', staffId), {
+      isActive: false,
+      deletedAt: Timestamp.now(),
+    });
 
-    return result.data;
-  } catch (error: any) {
-    console.error('Error deleting staff with Cloud Functions:', error);
-    
-    // Cloud Functions hatalarını client-friendly'e çevir
-    if (error.code === 'functions/permission-denied') {
-      throw new Error('Only administrators can delete staff members');
-    } else if (error.code === 'functions/unauthenticated') {
-      throw new Error('You must be logged in to delete staff members');
-    }
-    
-    throw new Error(error.message || 'An error occurred while deleting staff member');
+    console.log('Staff deactivated successfully');
+    return true;
+  } catch (error) {
+    console.error('Error deactivating staff:', error);
+    throw error;
   }
 };
 
-// Fallback: Client-side silme (sadece Firestore'dan siler, Authentication'dan silmez)
-export const deleteStaff = async (staffId: string, userEmail: string, userPassword: string) => {
+// Giriş kontrolü için yardımcı fonksiyon
+export const checkUserStatus = async (uid: string) => {
   try {
-    const currentUser = auth.currentUser;
-    if (!currentUser) {
-      throw new Error('You must be logged in to delete users');
+    const userDocRef = doc(db, 'staff', uid);
+    const userDoc = await getDoc(userDocRef);
+    const userData = userDoc.data();
+    
+    if (!userData || userData.isActive === false) {
+      throw new Error('User account has been deactivated');
     }
-
-    // Sadece Firestore'dan sil
-    await deleteDoc(doc(db, 'staff', staffId));
-
-    console.log('Staff successfully deleted from Firestore (Authentication user still exists)');
-    return true;
+    
+    return userData;
   } catch (error) {
-    console.error('Error deleting staff:', error);
     throw error;
+  }
+};
+
+// Cloud Functions kullanarak tam silme (eğer Cloud Functions kuruluysa)
+export const createStaffSecure = async (data: StaffData) => {
+  try {
+    const createStaff = httpsCallable(functions, 'createStaff');
+    const result = await createStaff({
+      fullName: data.fullName,
+      email: data.email,
+      password: data.password,
+      role: data.role,
+    });
+
+    return result.data;
+  } catch (error: any) {
+    console.error('Cloud Functions not available, using fallback:', error);
+    // Fallback: Normal staff oluşturma
+    return await createStaff(data);
+  }
+};
+
+export const deleteStaffSecure = async (staffId: string) => {
+  try {
+    const deleteStaffFunc = httpsCallable(functions, 'deleteStaff');
+    const result = await deleteStaffFunc({ staffId });
+    return result.data;
+  } catch (error: any) {
+    console.error('Cloud Functions not available, using soft delete:', error);
+    // Fallback: Soft delete
+    return await deleteStaff(staffId);
   }
 };

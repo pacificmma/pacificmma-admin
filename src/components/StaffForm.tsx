@@ -17,7 +17,7 @@ import {
 import CloseIcon from '@mui/icons-material/Close';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
-import { createStaffSecure } from '../services/staffService';
+import { createStaff } from '../services/staffService';
 
 interface StaffFormProps {
   open: boolean;
@@ -26,7 +26,7 @@ interface StaffFormProps {
 
 const roles = ['admin', 'trainer', 'staff'];
 
-const StaffForm: React.FC<StaffFormProps> = ({ open, onClose }) => {
+const StaffForm = ({ open, onClose }: StaffFormProps) => {
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -54,8 +54,8 @@ const StaffForm: React.FC<StaffFormProps> = ({ open, onClose }) => {
     setError(null);
     
     try {
-      // Cloud Functions kullanarak güvenli staff oluşturma
-      await createStaffSecure({ fullName, email, password, role });
+      // Staff oluşturma fonksiyonunu kullan
+      await createStaff({ fullName, email, password, role });
       onClose();
       // Form verilerini temizle
       setFullName('');
@@ -65,7 +65,21 @@ const StaffForm: React.FC<StaffFormProps> = ({ open, onClose }) => {
       setError(null);
     } catch (err: any) {
       console.error('Error creating staff:', err);
-      setError(err.message || 'An error occurred while creating user');
+      
+      // Firebase Auth error kodlarını kontrol et
+      let errorMessage = 'An error occurred while creating user';
+      
+      if (err.code === 'auth/email-already-in-use') {
+        errorMessage = 'This email address is already in use';
+      } else if (err.code === 'auth/invalid-email') {
+        errorMessage = 'Invalid email address';
+      } else if (err.code === 'auth/weak-password') {
+        errorMessage = 'Password is too weak';
+      } else if (err.message) {
+        errorMessage = err.message;
+      }
+      
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
