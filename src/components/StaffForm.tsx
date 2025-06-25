@@ -17,7 +17,7 @@ import {
 import CloseIcon from '@mui/icons-material/Close';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
-import { createStaff } from '../services/staffService';
+import { createStaffSecure } from '../services/staffService';
 
 interface StaffFormProps {
   open: boolean;
@@ -54,7 +54,8 @@ const StaffForm: React.FC<StaffFormProps> = ({ open, onClose }) => {
     setError(null);
     
     try {
-      await createStaff({ fullName, email, password, role });
+      // Cloud Functions kullanarak güvenli staff oluşturma
+      await createStaffSecure({ fullName, email, password, role });
       onClose();
       // Form verilerini temizle
       setFullName('');
@@ -64,19 +65,7 @@ const StaffForm: React.FC<StaffFormProps> = ({ open, onClose }) => {
       setError(null);
     } catch (err: any) {
       console.error('Error creating staff:', err);
-      
-      // Convert Firebase Auth errors to user-friendly messages
-      let errorMessage = 'An error occurred while creating user';
-      
-      if (err.code === 'auth/email-already-in-use') {
-        errorMessage = 'This email address is already in use';
-      } else if (err.code === 'auth/invalid-email') {
-        errorMessage = 'Invalid email address';
-      } else if (err.code === 'auth/weak-password') {
-        errorMessage = 'Password is too weak';
-      }
-      
-      setError(errorMessage);
+      setError(err.message || 'An error occurred while creating user');
     } finally {
       setLoading(false);
     }

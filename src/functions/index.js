@@ -1,4 +1,3 @@
-// functions/index.js
 const functions = require('firebase-functions');
 const admin = require('firebase-admin');
 
@@ -57,7 +56,7 @@ exports.deleteStaff = functions.https.onCall(async (data, context) => {
   }
 });
 
-// Staff oluşturma fonksiyonu (isteğe bağlı - daha güvenli)
+// Staff oluşturma fonksiyonu
 exports.createStaff = functions.https.onCall(async (data, context) => {
   if (!context.auth) {
     throw new functions.https.HttpsError('unauthenticated', 'User must be authenticated');
@@ -107,8 +106,15 @@ exports.createStaff = functions.https.onCall(async (data, context) => {
       throw error;
     }
     
+    // Firebase Auth hata kodlarını kontrol et
+    if (error.code === 'auth/email-already-exists') {
+      throw new functions.https.HttpsError('already-exists', 'This email address is already in use');
+    } else if (error.code === 'auth/invalid-email') {
+      throw new functions.https.HttpsError('invalid-argument', 'Invalid email address');
+    } else if (error.code === 'auth/weak-password') {
+      throw new functions.https.HttpsError('invalid-argument', 'Password is too weak');
+    }
+    
     throw new functions.https.HttpsError('internal', error.message || 'An unexpected error occurred');
   }
 });
-
-export { functions };

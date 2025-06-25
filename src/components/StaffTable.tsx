@@ -24,7 +24,7 @@ import {
   Alert,
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
-import { getAllStaff, deleteStaff } from '../services/staffService';
+import { getAllStaff, deleteStaffSecure } from '../services/staffService';
 
 interface Staff {
   id: string;
@@ -77,10 +77,12 @@ const StaffTable: React.FC<StaffTableProps> = ({ refreshTrigger }) => {
 
     setDeleteLoading(staffToDelete.id);
     try {
-      await deleteStaff(staffToDelete.id, staffToDelete.email, '');
+      // Cloud Functions kullanarak güvenli silme işlemi
+      await deleteStaffSecure(staffToDelete.id);
       await fetchStaff();
       setDeleteDialogOpen(false);
       setStaffToDelete(null);
+      setError(null);
     } catch (err: any) {
       console.error('Error deleting staff:', err);
       setError('An error occurred while deleting user: ' + err.message);
@@ -186,7 +188,7 @@ const StaffTable: React.FC<StaffTableProps> = ({ refreshTrigger }) => {
           <DialogContent>
             <Typography>
               Are you sure you want to delete <strong>{staffToDelete?.fullName}</strong>?
-              This action cannot be undone.
+              This action cannot be undone and will remove the user from both the database and authentication system.
             </Typography>
           </DialogContent>
           <DialogActions>
@@ -277,7 +279,7 @@ const StaffTable: React.FC<StaffTableProps> = ({ refreshTrigger }) => {
         <DialogContent>
           <Typography>
             Are you sure you want to delete <strong>{staffToDelete?.fullName}</strong>?
-            This action cannot be undone.
+            This action cannot be undone and will remove the user from both the database and authentication system.
           </Typography>
         </DialogContent>
         <DialogActions>
