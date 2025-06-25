@@ -18,6 +18,8 @@ import ClassTable from '../components/ClassTable';
 import ClassForm from '../components/ClassForm';
 import ProtectedComponent from '../components/ProtectedComponent';
 import { useRoleControl } from '../hooks/useRoleControl';
+import FirebaseConnectionTest from '../components/FireBaseConnectionTest';
+
 
 const ClassesPage = () => {
   const [openForm, setOpenForm] = useState(false);
@@ -51,6 +53,7 @@ const ClassesPage = () => {
 
   return (
     <>
+    <FirebaseConnectionTest />
       <Container 
         maxWidth="xl" 
         sx={{ 
