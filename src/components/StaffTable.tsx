@@ -78,7 +78,7 @@ const StaffTable: React.FC<StaffTableProps> = ({ refreshTrigger }) => {
     setDeleteLoading(staffToDelete.id);
     try {
       await deleteStaff(staffToDelete.id, staffToDelete.email, '');
-      await fetchStaff(); // Listeyi yenile
+      await fetchStaff();
       setDeleteDialogOpen(false);
       setStaffToDelete(null);
     } catch (err: any) {

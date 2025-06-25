@@ -18,6 +18,7 @@
     "date-fns": "^4.1.0",
     "dayjs": "^1.11.13",
     "firebase": "^11.9.1",
+    "firebase-functions": "^6.3.2",
     "formik": "^2.4.6",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",

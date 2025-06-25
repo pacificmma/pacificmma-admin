@@ -39,9 +39,10 @@ import { format } from 'date-fns';
 interface ClassTableProps {
   refreshTrigger?: number;
   onEdit: (classData: ClassRecord) => void;
+  showAdminFeatures?: boolean;
 }
 
-const ClassTable: React.FC<ClassTableProps> = ({ refreshTrigger, onEdit }) => {
+const ClassTable: React.FC<ClassTableProps> = ({ refreshTrigger, onEdit, showAdminFeatures = false }) => {
   const [classList, setClassList] = useState<ClassRecord[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [deleteLoading, setDeleteLoading] = useState<string | null>(null);
@@ -235,25 +236,29 @@ const ClassTable: React.FC<ClassTableProps> = ({ refreshTrigger, onEdit }) => {
               </CardContent>
               
               <CardActions sx={{ justifyContent: 'flex-end', pt: 0 }}>
-                <IconButton
-                  onClick={() => onEdit(classItem)}
-                  size="small"
-                  color="primary"
-                >
-                  <EditIcon />
-                </IconButton>
-                <IconButton
-                  onClick={() => handleDeleteClick(classItem)}
-                  disabled={deleteLoading === classItem.id}
-                  color="error"
-                  size="small"
-                >
-                  {deleteLoading === classItem.id ? (
-                    <CircularProgress size={20} />
-                  ) : (
-                    <DeleteIcon />
-                  )}
-                </IconButton>
+                {showAdminFeatures && (
+                  <>
+                    <IconButton
+                      onClick={() => onEdit(classItem)}
+                      size="small"
+                      color="primary"
+                    >
+                      <EditIcon />
+                    </IconButton>
+                    <IconButton
+                      onClick={() => handleDeleteClick(classItem)}
+                      disabled={deleteLoading === classItem.id}
+                      color="error"
+                      size="small"
+                    >
+                      {deleteLoading === classItem.id ? (
+                        <CircularProgress size={20} />
+                      ) : (
+                        <DeleteIcon />
+                      )}
+                    </IconButton>
+                  </>
+                )}
               </CardActions>
             </Card>
           ))}
@@ -309,9 +314,11 @@ const ClassTable: React.FC<ClassTableProps> = ({ refreshTrigger, onEdit }) => {
               <TableCell sx={{ fontWeight: 600, fontSize: '0.95rem' }}>
                 Price
               </TableCell>
-              <TableCell sx={{ fontWeight: 600, fontSize: '0.95rem', width: 120 }}>
-                Actions
-              </TableCell>
+              {showAdminFeatures && (
+                <TableCell sx={{ fontWeight: 600, fontSize: '0.95rem', width: 120 }}>
+                  Actions
+                </TableCell>
+              )}
             </TableRow>
           </TableHead>
           <TableBody>
@@ -381,29 +388,31 @@ const ClassTable: React.FC<ClassTableProps> = ({ refreshTrigger, onEdit }) => {
                     </Typography>
                   )}
                 </TableCell>
-                <TableCell>
-                  <Box sx={{ display: 'flex', gap: 0.5 }}>
-                    <IconButton
-                      onClick={() => onEdit(classItem)}
-                      size="small"
-                      color="primary"
-                    >
-                      <EditIcon />
-                    </IconButton>
-                    <IconButton
-                      onClick={() => handleDeleteClick(classItem)}
-                      disabled={deleteLoading === classItem.id}
-                      color="error"
-                      size="small"
-                    >
-                      {deleteLoading === classItem.id ? (
-                        <CircularProgress size={20} />
-                      ) : (
-                        <DeleteIcon />
-                      )}
-                    </IconButton>
-                  </Box>
-                </TableCell>
+                {showAdminFeatures && (
+                  <TableCell>
+                    <Box sx={{ display: 'flex', gap: 0.5 }}>
+                      <IconButton
+                        onClick={() => onEdit(classItem)}
+                        size="small"
+                        color="primary"
+                      >
+                        <EditIcon />
+                      </IconButton>
+                      <IconButton
+                        onClick={() => handleDeleteClick(classItem)}
+                        disabled={deleteLoading === classItem.id}
+                        color="error"
+                        size="small"
+                      >
+                        {deleteLoading === classItem.id ? (
+                          <CircularProgress size={20} />
+                        ) : (
+                          <DeleteIcon />
+                        )}
+                      </IconButton>
+                    </Box>
+                  </TableCell>
+                )}
               </TableRow>
             ))}
           </TableBody>

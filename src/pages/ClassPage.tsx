@@ -16,6 +16,8 @@ import FitnessCenterIcon from '@mui/icons-material/FitnessCenter';
 import WorkshopIcon from '@mui/icons-material/School';
 import ClassTable from '../components/ClassTable';
 import ClassForm from '../components/ClassForm';
+import ProtectedComponent from '../components/ProtectedComponent';
+import { useRoleControl } from '../hooks/useRoleControl';
 
 const ClassesPage = () => {
   const [openForm, setOpenForm] = useState(false);
@@ -24,6 +26,7 @@ const ClassesPage = () => {
   const [tabValue, setTabValue] = useState(0);
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+  const { canCreateClasses, isAdmin } = useRoleControl();
 
   const handleFormClose = () => {
     setOpenForm(false);
@@ -77,12 +80,12 @@ const ClassesPage = () => {
               Classes & Workshops
             </Typography>
             <Typography variant="body1" color="text.secondary">
-              Manage your fitness classes and special workshops
+              {isAdmin ? 'Manage your fitness classes and special workshops' : 'View available classes and workshops'}
             </Typography>
           </Box>
           
-          {/* Desktop Add Button */}
-          {!isMobile && (
+          {/* Desktop Add Button - Only for Admins */}
+          {!isMobile && canCreateClasses && (
             <Button 
               variant="contained" 
               startIcon={<AddIcon />}
@@ -140,53 +143,55 @@ const ClassesPage = () => {
           </Tabs>
         </Paper>
 
-        {/* Stats Cards */}
-        <Box sx={{ 
-          display: 'grid', 
-          gridTemplateColumns: { 
-            xs: '1fr', 
-            sm: 'repeat(2, 1fr)', 
-            md: 'repeat(4, 1fr)' 
-          },
-          gap: 2,
-          mb: 3
-        }}>
-          <Paper sx={{ p: 2, textAlign: 'center' }}>
-            <Typography variant="h4" color="primary" fontWeight="bold">
-              24
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              Total Classes
-            </Typography>
-          </Paper>
-          
-          <Paper sx={{ p: 2, textAlign: 'center' }}>
-            <Typography variant="h4" color="secondary" fontWeight="bold">
-              8
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              Workshops
-            </Typography>
-          </Paper>
-          
-          <Paper sx={{ p: 2, textAlign: 'center' }}>
-            <Typography variant="h4" color="success.main" fontWeight="bold">
-              156
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              Total Enrollment
-            </Typography>
-          </Paper>
-          
-          <Paper sx={{ p: 2, textAlign: 'center' }}>
-            <Typography variant="h4" color="warning.main" fontWeight="bold">
-              85%
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              Avg. Capacity
-            </Typography>
-          </Paper>
-        </Box>
+        {/* Stats Cards - Only for Admins */}
+        <ProtectedComponent allowedRoles={['admin']}>
+          <Box sx={{ 
+            display: 'grid', 
+            gridTemplateColumns: { 
+              xs: '1fr', 
+              sm: 'repeat(2, 1fr)', 
+              md: 'repeat(4, 1fr)' 
+            },
+            gap: 2,
+            mb: 3
+          }}>
+            <Paper sx={{ p: 2, textAlign: 'center' }}>
+              <Typography variant="h4" color="primary" fontWeight="bold">
+                24
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Total Classes
+              </Typography>
+            </Paper>
+            
+            <Paper sx={{ p: 2, textAlign: 'center' }}>
+              <Typography variant="h4" color="secondary" fontWeight="bold">
+                8
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Workshops
+              </Typography>
+            </Paper>
+            
+            <Paper sx={{ p: 2, textAlign: 'center' }}>
+              <Typography variant="h4" color="success.main" fontWeight="bold">
+                156
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Total Enrollment
+              </Typography>
+            </Paper>
+            
+            <Paper sx={{ p: 2, textAlign: 'center' }}>
+              <Typography variant="h4" color="warning.main" fontWeight="bold">
+                85%
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Avg. Capacity
+              </Typography>
+            </Paper>
+          </Box>
+        </ProtectedComponent>
 
         {/* Classes Table/Cards */}
         <Box sx={{ 
@@ -197,12 +202,13 @@ const ClassesPage = () => {
             key={refreshTrigger} 
             refreshTrigger={refreshTrigger}
             onEdit={handleEdit}
+            showAdminFeatures={isAdmin}
           />
         </Box>
       </Container>
 
-      {/* Mobile Floating Action Button */}
-      {isMobile && (
+      {/* Mobile Floating Action Button - Only for Admins */}
+      {isMobile && canCreateClasses && (
         <Fab
           color="primary"
           aria-label="add class"
@@ -222,12 +228,14 @@ const ClassesPage = () => {
         </Fab>
       )}
 
-      {/* Class/Workshop Form Modal */}
-      <ClassForm 
-        open={openForm} 
-        onClose={handleFormClose}
-        editData={editData}
-      />
+      {/* Class/Workshop Form Modal - Only for Admins */}
+      {canCreateClasses && (
+        <ClassForm 
+          open={openForm} 
+          onClose={handleFormClose}
+          editData={editData}
+        />
+      )}
     </>
   );
 };

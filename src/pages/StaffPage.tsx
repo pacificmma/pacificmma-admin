@@ -11,6 +11,7 @@ import {
 import AddIcon from '@mui/icons-material/Add';
 import StaffTable from '../components/StaffTable';
 import StaffForm from '../components/StaffForm';
+import ProtectedComponent from '../components/ProtectedComponent';
 
 const StaffPage = () => {
   const [openForm, setOpenForm] = useState(false);
@@ -25,7 +26,10 @@ const StaffPage = () => {
   };
 
   return (
-    <>
+    <ProtectedComponent 
+      allowedRoles={['admin']} 
+      fallbackMessage="Only administrators can access staff management."
+    >
       <Container 
         maxWidth="lg" 
         sx={{ 
@@ -108,7 +112,7 @@ const StaffPage = () => {
 
       {/* Staff Form Modal */}
       <StaffForm open={openForm} onClose={handleFormClose} />
-    </>
+    </ProtectedComponent>
   );
 };
 

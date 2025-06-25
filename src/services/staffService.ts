@@ -1,4 +1,4 @@
-import { db, auth } from './firebase'; // firebase.ts dosyanızın yolu
+import { db, auth } from './firebase';
 import {
   collection,
   addDoc,
@@ -15,6 +15,8 @@ import {
   deleteUser,
   signInWithEmailAndPassword,
 } from 'firebase/auth';
+import { httpsCallable } from 'firebase/functions';
+import { functions } from './firebase';
 
 export interface StaffData {
   fullName: string;
@@ -29,10 +31,42 @@ export interface StaffRecord {
   email: string;
   role: 'admin' | 'trainer' | 'staff';
   createdAt: Timestamp;
-  uid: string; // Authentication UID'si
+  uid: string;
 }
 
-// Yeni staff ve kullanıcı hesabı oluştur
+// Cloud Functions kullanarak staff oluştur (önerilen)
+export const createStaffSecure = async (data: StaffData) => {
+  try {
+    const createStaff = httpsCallable(functions, 'createStaff');
+    const result = await createStaff({
+      fullName: data.fullName,
+      email: data.email,
+      password: data.password,
+      role: data.role,
+    });
+
+    return result.data;
+  } catch (error: any) {
+    console.error('Error creating staff with Cloud Functions:', error);
+    
+    // Cloud Functions hatalarını client-friendly'e çevir
+    if (error.code === 'functions/permission-denied') {
+      throw new Error('Only administrators can create staff members');
+    } else if (error.code === 'functions/unauthenticated') {
+      throw new Error('You must be logged in to create staff members');
+    } else if (error.message?.includes('email-already-in-use')) {
+      throw new Error('This email address is already in use');
+    } else if (error.message?.includes('weak-password')) {
+      throw new Error('Password is too weak');
+    } else if (error.message?.includes('invalid-email')) {
+      throw new Error('Invalid email address');
+    }
+    
+    throw new Error(error.message || 'An error occurred while creating staff member');
+  }
+};
+
+// Fallback: Client-side oluşturma (daha az güvenli)
 export const createStaff = async (data: StaffData) => {
   try {
     // 1. Firebase Authentication ile kullanıcı oluştur
@@ -49,16 +83,15 @@ export const createStaff = async (data: StaffData) => {
       displayName: data.fullName,
     });
 
-    // 3. Firestore'da staff kaydını oluştur (kullanıcı UID'si ile)
+    // 3. Firestore'da staff kaydını oluştur
     const staffData = {
       fullName: data.fullName,
       email: data.email,
       role: data.role,
       createdAt: Timestamp.now(),
-      uid: user.uid, // Authentication UID'si ile bağlantı
+      uid: user.uid,
     };
 
-    // Kullanıcı UID'si ile document oluştur
     await setDoc(doc(db, 'staff', user.uid), staffData);
 
     return {
@@ -67,7 +100,7 @@ export const createStaff = async (data: StaffData) => {
     };
   } catch (error) {
     console.error('Error creating staff:', error);
-    throw error; // Hatayı yukarı ilet
+    throw error;
   }
 };
 
@@ -92,48 +125,39 @@ export const getAllStaff = async (): Promise<StaffRecord[]> => {
   return staffList;
 };
 
-// Delete staff user (Authentication + Firestore)
+// Cloud Functions kullanarak staff sil (önerilen)
+export const deleteStaffSecure = async (staffId: string) => {
+  try {
+    const deleteStaff = httpsCallable(functions, 'deleteStaff');
+    const result = await deleteStaff({ staffId });
+
+    return result.data;
+  } catch (error: any) {
+    console.error('Error deleting staff with Cloud Functions:', error);
+    
+    // Cloud Functions hatalarını client-friendly'e çevir
+    if (error.code === 'functions/permission-denied') {
+      throw new Error('Only administrators can delete staff members');
+    } else if (error.code === 'functions/unauthenticated') {
+      throw new Error('You must be logged in to delete staff members');
+    }
+    
+    throw new Error(error.message || 'An error occurred while deleting staff member');
+  }
+};
+
+// Fallback: Client-side silme (sadece Firestore'dan siler, Authentication'dan silmez)
 export const deleteStaff = async (staffId: string, userEmail: string, userPassword: string) => {
   try {
-    // 1. Verify admin user password
     const currentUser = auth.currentUser;
     if (!currentUser) {
       throw new Error('You must be logged in to delete users');
     }
 
-    // 2. Delete staff record from Firestore
+    // Sadece Firestore'dan sil
     await deleteDoc(doc(db, 'staff', staffId));
 
-    // Note: Deleting users from Firebase Authentication is only possible
-    // when that user is currently signed in. For admin panel, you need to use 
-    // Firebase Admin SDK or Cloud Functions.
-    
-    console.log('Staff successfully deleted');
-    return true;
-  } catch (error) {
-    console.error('Error deleting staff:', error);
-    throw error;
-  }
-};
-
-// Alternative: Delete using Cloud Functions (recommended method)
-export const deleteStaffSecure = async (staffId: string) => {
-  try {
-    // This function works with Cloud Functions
-    // Users can be deleted with Firebase Admin SDK in Cloud Functions
-    
-    const response = await fetch('/api/deleteStaff', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ staffId }),
-    });
-
-    if (!response.ok) {
-      throw new Error('Could not delete user');
-    }
-
+    console.log('Staff successfully deleted from Firestore (Authentication user still exists)');
     return true;
   } catch (error) {
     console.error('Error deleting staff:', error);

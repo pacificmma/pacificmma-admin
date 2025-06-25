@@ -20,16 +20,10 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import ListItemButton from '@mui/material/ListItemButton';
 import { Button } from '@mui/material';
 import SportsMartialArtsIcon from '@mui/icons-material/SportsMartialArts';
+import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
+import { useRoleControl } from '../hooks/useRoleControl';
 
 const drawerWidth = 240;
-
-const menuItems = [
-    { text: 'Classes', icon: <FitnessCenterIcon />, path: '/classes' },
-    { text: 'Members', icon: <GroupIcon />, path: '/members' },
-    { text: 'Discounts', icon: <DiscountIcon />, path: '/discounts' },
-    { text: 'Dashboard', icon: <DashboardIcon />, path: '/dashboard' },
-    { text: 'Staff', icon: <SportsMartialArtsIcon />, path: '/staff' },
-];
 
 interface SidebarProps {
     mobileOpen: boolean;
@@ -41,6 +35,37 @@ const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, handleDrawerToggle }) => 
     const location = useLocation();
     const theme = useTheme();
     const isMobile = useMediaQuery(theme.breakpoints.down('md'));
+    const { isAdmin, isTrainer, isStaff } = useRoleControl();
+
+    // Role-based menu items
+    const getMenuItems = () => {
+        const baseItems = [
+            { text: 'Dashboard', icon: <DashboardIcon />, path: '/dashboard' },
+            { text: 'Classes', icon: <FitnessCenterIcon />, path: '/classes' },
+        ];
+
+        // Admin can see everything
+        if (isAdmin) {
+            return [
+                ...baseItems,
+                { text: 'Members', icon: <GroupIcon />, path: '/members' },
+                { text: 'Discounts', icon: <DiscountIcon />, path: '/discounts' },
+                { text: 'Staff', icon: <SportsMartialArtsIcon />, path: '/staff' },
+            ];
+        }
+
+        // Trainer/Staff can see limited items
+        if (isTrainer || isStaff) {
+            return [
+                ...baseItems,
+                { text: 'My Schedule', icon: <CalendarMonthIcon />, path: '/my-schedule' },
+            ];
+        }
+
+        return baseItems;
+    };
+
+    const menuItems = getMenuItems();
 
     const handleNavigation = (path: string) => {
         navigate(path);
