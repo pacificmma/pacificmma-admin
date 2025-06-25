@@ -29,6 +29,7 @@ import {
   AccordionSummary,
   AccordionDetails,
   Divider,
+  Collapse,
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import EditIcon from '@mui/icons-material/Edit';
@@ -38,18 +39,23 @@ import PersonIcon from '@mui/icons-material/Person';
 import AttachMoneyIcon from '@mui/icons-material/AttachMoney';
 import GroupIcon from '@mui/icons-material/Group';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import PackageIcon from '@mui/icons-material/Inventory';
+import ScheduleIcon from '@mui/icons-material/Schedule';
+import SettingsIcon from '@mui/icons-material/Settings';
 import { getAllClasses, getAllPackages, deleteClass, deletePackage, ClassRecord, PackageRecord } from '../services/classService';
 import { format } from 'date-fns';
 import { useRoleControl } from '../hooks/useRoleControl';
+import PackageSessionManager from './PackageSessionManager';
 
 interface ClassTableProps {
   refreshTrigger?: number;
   onEdit: (classData: ClassRecord) => void;
   filter: 'all' | 'class' | 'workshop';
+  onDataLoaded?: (data: { classList: ClassRecord[], packageList: PackageRecord[] }) => void;
 }
 
-const ClassTable: React.FC<ClassTableProps> = ({ refreshTrigger, onEdit, filter }) => {
+const ClassTable: React.FC<ClassTableProps> = ({ refreshTrigger, onEdit, filter, onDataLoaded }) => {
   const [classList, setClassList] = useState<ClassRecord[]>([]);
   const [packageList, setPackageList] = useState<PackageRecord[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -57,6 +63,9 @@ const ClassTable: React.FC<ClassTableProps> = ({ refreshTrigger, onEdit, filter 
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [itemToDelete, setItemToDelete] = useState<{type: 'class' | 'package', item: ClassRecord | PackageRecord} | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [expandedPackages, setExpandedPackages] = useState<Set<string>>(new Set());
+  const [sessionManagerOpen, setSessionManagerOpen] = useState(false);
+  const [selectedPackage, setSelectedPackage] = useState<PackageRecord | null>(null);
   
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
@@ -65,16 +74,26 @@ const ClassTable: React.FC<ClassTableProps> = ({ refreshTrigger, onEdit, filter 
   const fetchData = async () => {
     try {
       setLoading(true);
+      setError(null);
+      
+      console.log('Fetching classes and packages...');
       const [classes, packages] = await Promise.all([
         getAllClasses(),
         getAllPackages()
       ]);
+      
       setClassList(classes);
       setPackageList(packages);
-      setError(null);
-    } catch (err) {
+      
+      // Pass data to parent component for stats calculation
+      if (onDataLoaded) {
+        onDataLoaded({ classList: classes, packageList: packages });
+      }
+      
+      console.log(`Loaded ${classes.length} classes and ${packages.length} packages`);
+    } catch (err: any) {
       console.error('Error loading data:', err);
-      setError('An error occurred while loading classes and packages');
+      setError(err.message || 'An error occurred while loading classes and packages');
     } finally {
       setLoading(false);
     }
@@ -82,13 +101,11 @@ const ClassTable: React.FC<ClassTableProps> = ({ refreshTrigger, onEdit, filter 
 
   // Filter and combine data
   const filteredData = useMemo(() => {
-    const singleClasses = classList.filter(classItem => !classItem.isPackage);
-    
-    let filteredClasses = singleClasses;
+    let filteredClasses = classList;
     let filteredPackages = packageList;
 
     if (filter !== 'all') {
-      filteredClasses = singleClasses.filter(classItem => classItem.type === filter);
+      filteredClasses = classList.filter(classItem => classItem.type === filter);
       filteredPackages = packageList.filter(pkg => pkg.type === filter);
     }
 
@@ -143,6 +160,32 @@ const ClassTable: React.FC<ClassTableProps> = ({ refreshTrigger, onEdit, filter 
     setItemToDelete(null);
   };
 
+  const handleSessionManager = (packageItem: PackageRecord) => {
+    setSelectedPackage(packageItem);
+    setSessionManagerOpen(true);
+  };
+
+  const handleSessionManagerClose = () => {
+    setSessionManagerOpen(false);
+    setSelectedPackage(null);
+  };
+
+  const handleSessionManagerUpdate = () => {
+    fetchData(); // Refresh data after session changes
+  };
+
+  const togglePackageExpanded = (packageId: string) => {
+    setExpandedPackages(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(packageId)) {
+        newSet.delete(packageId);
+      } else {
+        newSet.add(packageId);
+      }
+      return newSet;
+    });
+  };
+
   const getTypeColor = (type: string) => {
     switch (type) {
       case 'workshop':
@@ -159,6 +202,16 @@ const ClassTable: React.FC<ClassTableProps> = ({ refreshTrigger, onEdit, filter 
     try {
       const dateObj = date.toDate ? date.toDate() : new Date(date);
       return format(dateObj, 'MMM dd, yyyy');
+    } catch (error) {
+      return 'Invalid Date';
+    }
+  };
+
+  const formatSessionDate = (date: any) => {
+    if (!date) return 'Invalid Date';
+    try {
+      const dateObj = date.toDate ? date.toDate() : new Date(date);
+      return format(dateObj, 'MMM dd');
     } catch (error) {
       return 'Invalid Date';
     }
@@ -181,7 +234,7 @@ const ClassTable: React.FC<ClassTableProps> = ({ refreshTrigger, onEdit, filter 
   if (error) {
     return (
       <Paper sx={{ p: 3, mt: 2 }}>
-        <Alert severity="error">{error}</Alert>
+        <Alert severity="error" onClose={() => setError(null)}>{error}</Alert>
       </Paper>
     );
   }
@@ -265,7 +318,14 @@ const ClassTable: React.FC<ClassTableProps> = ({ refreshTrigger, onEdit, filter 
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                         <EventIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
                         <Typography variant="body2" color="text.secondary">
-                          {formatDateTime(item.startDate)} - {formatDateTime(item.endDate)}
+                          {formatDateTime(item.startDate)} - {formatDateTime((item as PackageRecord).endDate)}
+                        </Typography>
+                      </Box>
+                      
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <ScheduleIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
+                        <Typography variant="body2" color="text.secondary">
+                          {item.startTime} - {item.endTime}
                         </Typography>
                       </Box>
                       
@@ -285,38 +345,78 @@ const ClassTable: React.FC<ClassTableProps> = ({ refreshTrigger, onEdit, filter 
                       
                       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mt: 1 }}>
                         <Typography variant="body2" color="text.secondary">
-                          {item.totalSessions} sessions • {item.startTime} - {item.endTime}
+                          {item.totalSessions} sessions • {item.capacity} per session
                         </Typography>
                         
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                          <AttachMoneyIcon sx={{ fontSize: 16, color: 'success.main' }} />
-                          <Typography variant="body2" color="success.main" fontWeight={600}>
-                            {item.packagePrice}
-                          </Typography>
-                        </Box>
+                        {isAdmin && (
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                            <AttachMoneyIcon sx={{ fontSize: 16, color: 'success.main' }} />
+                            <Typography variant="body2" color="success.main" fontWeight={600}>
+                              ${(item as PackageRecord).packagePrice}
+                            </Typography>
+                          </Box>
+                        )}
                       </Box>
                     </Box>
 
-                    {/* Package Sessions Accordion */}
-                    <Accordion sx={{ mt: 2 }} elevation={0}>
-                      <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                        <Typography variant="body2" fontWeight={600}>
-                          View Sessions ({item.sessions?.length || 0})
-                        </Typography>
-                      </AccordionSummary>
-                      <AccordionDetails sx={{ pt: 0 }}>
-                        {item.sessions?.map((session, index) => (
-                          <Box key={session.id} sx={{ py: 1, borderBottom: index < item.sessions.length - 1 ? '1px solid' : 'none', borderColor: 'divider' }}>
-                            <Typography variant="body2" fontWeight={500}>
-                              Session {session.sessionNumber}: {formatDateTime(session.date)}
-                            </Typography>
-                            <Typography variant="caption" color="text.secondary">
-                              {session.currentEnrollment}/{session.capacity} enrolled
-                            </Typography>
-                          </Box>
-                        ))}
-                      </AccordionDetails>
-                    </Accordion>
+                    {/* Package Sessions Expandable */}
+                    <Box sx={{ mt: 2 }}>
+                      <Box sx={{ display: 'flex', gap: 1, mb: 1 }}>
+                        <Button
+                          onClick={() => togglePackageExpanded(item.id)}
+                          startIcon={expandedPackages.has(item.id) ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+                          size="small"
+                          variant="outlined"
+                          sx={{ flex: 1 }}
+                        >
+                          {expandedPackages.has(item.id) ? 'Hide' : 'View'} Sessions ({(item as PackageRecord).sessions?.length || 0})
+                        </Button>
+                        {isAdmin && (
+                          <Button
+                            onClick={() => handleSessionManager(item as PackageRecord)}
+                            startIcon={<SettingsIcon />}
+                            size="small"
+                            variant="contained"
+                            color="secondary"
+                          >
+                            Manage
+                          </Button>
+                        )}
+                      </Box>
+                      
+                      <Collapse in={expandedPackages.has(item.id)}>
+                        <Box sx={{ mt: 2 }}>
+                          {(item as PackageRecord).sessions?.map((session, index) => (
+                            <Box 
+                              key={session.id} 
+                              sx={{ 
+                                py: 1, 
+                                px: 2,
+                                mb: 1,
+                                bgcolor: 'grey.50',
+                                borderRadius: 1,
+                                borderLeft: '3px solid',
+                                borderColor: 'primary.main'
+                              }}
+                            >
+                              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <Box>
+                                  <Typography variant="body2" fontWeight={500}>
+                                    Session {session.sessionNumber}
+                                  </Typography>
+                                  <Typography variant="caption" color="text.secondary">
+                                    {formatSessionDate(session.date)} • {session.startTime}-{session.endTime}
+                                  </Typography>
+                                </Box>
+                                <Typography variant="caption" color="text.secondary">
+                                  {session.currentEnrollment}/{session.capacity}
+                                </Typography>
+                              </Box>
+                            </Box>
+                          ))}
+                        </Box>
+                      </Collapse>
+                    </Box>
                   </CardContent>
                 </Box>
               ) : (
@@ -382,11 +482,11 @@ const ClassTable: React.FC<ClassTableProps> = ({ refreshTrigger, onEdit, filter 
                           </Typography>
                         </Box>
                         
-                        {item.price > 0 && (
+                        {isAdmin && item.price > 0 && (
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                             <AttachMoneyIcon sx={{ fontSize: 16, color: 'success.main' }} />
                             <Typography variant="body2" color="success.main" fontWeight={600}>
-                              {item.price}
+                              ${item.price}
                             </Typography>
                           </Box>
                         )}
@@ -454,11 +554,21 @@ const ClassTable: React.FC<ClassTableProps> = ({ refreshTrigger, onEdit, filter 
             </DialogActions>
           </Dialog>
         )}
+
+        {/* Package Session Manager */}
+        {isAdmin && (
+          <PackageSessionManager
+            open={sessionManagerOpen}
+            onClose={handleSessionManagerClose}
+            packageData={selectedPackage}
+            onUpdate={handleSessionManagerUpdate}
+          />
+        )}
       </>
     );
   }
 
-  // Desktop table view - Similar structure but in table format
+  // Desktop table view
   return (
     <>
       <TableContainer component={Paper} sx={{ mt: 2 }}>
@@ -480,9 +590,11 @@ const ClassTable: React.FC<ClassTableProps> = ({ refreshTrigger, onEdit, filter 
               <TableCell sx={{ fontWeight: 600, fontSize: '0.95rem' }}>
                 Capacity
               </TableCell>
-              <TableCell sx={{ fontWeight: 600, fontSize: '0.95rem' }}>
-                Price
-              </TableCell>
+              {isAdmin && (
+                <TableCell sx={{ fontWeight: 600, fontSize: '0.95rem' }}>
+                  Price
+                </TableCell>
+              )}
               {isAdmin && (
                 <TableCell sx={{ fontWeight: 600, fontSize: '0.95rem', width: 120 }}>
                   Actions
@@ -492,133 +604,203 @@ const ClassTable: React.FC<ClassTableProps> = ({ refreshTrigger, onEdit, filter 
           </TableHead>
           <TableBody>
             {filteredData.map(({ type, item }) => (
-              <TableRow 
-                key={`${type}-${item.id}`}
-                sx={{ 
-                  '&:hover': { 
-                    backgroundColor: theme.palette.action.hover 
-                  },
-                  '&:last-child td, &:last-child th': { border: 0 }
-                }}
-              >
-                <TableCell>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                    <Avatar
-                      src={item.imageUrl}
-                      sx={{ width: 50, height: 50 }}
-                      variant="rounded"
-                    >
-                      {item.title.charAt(0)}
-                    </Avatar>
-                    <Box>
-                      <Typography variant="body2" fontWeight={600}>
-                        {item.title}
-                      </Typography>
-                      <Box sx={{ display: 'flex', gap: 0.5, mt: 0.5 }}>
-                        {type === 'package' && (
+              <React.Fragment key={`${type}-${item.id}`}>
+                <TableRow 
+                  sx={{ 
+                    '&:hover': { 
+                      backgroundColor: theme.palette.action.hover 
+                    },
+                    '&:last-child td, &:last-child th': { border: 0 }
+                  }}
+                >
+                  <TableCell>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                      <Avatar
+                        src={item.imageUrl}
+                        sx={{ width: 50, height: 50 }}
+                        variant="rounded"
+                      >
+                        {item.title.charAt(0)}
+                      </Avatar>
+                      <Box>
+                        <Typography variant="body2" fontWeight={600}>
+                          {item.title}
+                        </Typography>
+                        <Box sx={{ display: 'flex', gap: 0.5, mt: 0.5 }}>
+                          {type === 'package' && (
+                            <Chip
+                              icon={<PackageIcon />}
+                              label="Package"
+                              color="warning"
+                              size="small"
+                              variant="outlined"
+                            />
+                          )}
                           <Chip
-                            icon={<PackageIcon />}
-                            label="Package"
-                            color="warning"
+                            label={item.type.charAt(0).toUpperCase() + item.type.slice(1)}
+                            color={getTypeColor(item.type) as any}
                             size="small"
                             variant="outlined"
                           />
+                        </Box>
+                        {type === 'package' && (
+                          <Box sx={{ display: 'flex', gap: 0.5, mt: 0.5 }}>
+                            <Button
+                              onClick={() => togglePackageExpanded(item.id)}
+                              startIcon={expandedPackages.has(item.id) ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+                              size="small"
+                              sx={{ fontSize: '0.75rem' }}
+                            >
+                              {expandedPackages.has(item.id) ? 'Hide' : 'Show'} Sessions
+                            </Button>
+                            {isAdmin && (
+                              <Button
+                                onClick={() => handleSessionManager(item as PackageRecord)}
+                                startIcon={<SettingsIcon />}
+                                size="small"
+                                variant="contained"
+                                color="secondary"
+                                sx={{ fontSize: '0.75rem' }}
+                              >
+                                Manage
+                              </Button>
+                            )}
+                          </Box>
                         )}
-                        <Chip
-                          label={item.type.charAt(0).toUpperCase() + item.type.slice(1)}
-                          color={getTypeColor(item.type) as any}
-                          size="small"
-                          variant="outlined"
-                        />
                       </Box>
                     </Box>
-                  </Box>
-                </TableCell>
-                <TableCell sx={{ fontSize: '0.9rem' }}>
-                  {type === 'package' ? (
-                    <Box>
+                  </TableCell>
+                  <TableCell sx={{ fontSize: '0.9rem' }}>
+                    {type === 'package' ? (
+                      <Box>
+                        <Typography variant="body2">
+                          {formatDateTime(item.startDate)}
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          to {formatDateTime((item as PackageRecord).endDate)}
+                        </Typography>
+                        <Typography variant="caption" color="primary.main">
+                          {item.totalSessions} sessions
+                        </Typography>
+                      </Box>
+                    ) : (
+                      <Box>
+                        <Typography variant="body2">
+                          {formatDateTime(item.date)}
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          {item.startTime} - {item.endTime}
+                        </Typography>
+                      </Box>
+                    )}
+                  </TableCell>
+                  <TableCell sx={{ fontSize: '0.9rem' }}>
+                    {item.location}
+                  </TableCell>
+                  <TableCell sx={{ fontSize: '0.9rem' }}>
+                    {item.instructorName}
+                  </TableCell>
+                  <TableCell sx={{ fontSize: '0.9rem' }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <GroupIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
                       <Typography variant="body2">
-                        {formatDateTime(item.startDate)}
+                        {type === 'package' 
+                          ? `${item.capacity} per session`
+                          : `${item.currentEnrollment}/${item.capacity}`
+                        }
                       </Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        to {formatDateTime((item as PackageRecord).endDate)}
-                      </Typography>
-                      <Typography variant="caption" color="primary.main">
-                        {item.totalSessions} sessions
-                      </Typography>
-                    </Box>
-                  ) : (
-                    <Box>
-                      <Typography variant="body2">
-                        {formatDateTime(item.date)}
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        {item.startTime} - {item.endTime}
-                      </Typography>
-                    </Box>
-                  )}
-                </TableCell>
-                <TableCell sx={{ fontSize: '0.9rem' }}>
-                  {item.location}
-                </TableCell>
-                <TableCell sx={{ fontSize: '0.9rem' }}>
-                  {item.instructorName}
-                </TableCell>
-                <TableCell sx={{ fontSize: '0.9rem' }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <GroupIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
-                    <Typography variant="body2">
-                      {type === 'package' 
-                        ? `${item.capacity} per session`
-                        : `${item.currentEnrollment}/${item.capacity}`
-                      }
-                    </Typography>
-                  </Box>
-                </TableCell>
-                <TableCell sx={{ fontSize: '0.9rem' }}>
-                  {type === 'package' ? (
-                    <Box>
-                      <Typography variant="body2" color="success.main" fontWeight={600}>
-                        ${(item as PackageRecord).packagePrice} package
-                      </Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        ${((item as PackageRecord).packagePrice / item.totalSessions).toFixed(2)} per session
-                      </Typography>
-                    </Box>
-                  ) : (
-                    <Typography variant="body2" color="success.main" fontWeight={600}>
-                      {item.price > 0 ? `$${item.price}` : 'Free'}
-                    </Typography>
-                  )}
-                </TableCell>
-                {isAdmin && (
-                  <TableCell>
-                    <Box sx={{ display: 'flex', gap: 0.5 }}>
-                      {type === 'class' && (
-                        <IconButton
-                          onClick={() => onEdit(item as ClassRecord)}
-                          size="small"
-                          color="primary"
-                        >
-                          <EditIcon />
-                        </IconButton>
-                      )}
-                      <IconButton
-                        onClick={() => handleDeleteClick(type, item)}
-                        disabled={deleteLoading === item.id}
-                        color="error"
-                        size="small"
-                      >
-                        {deleteLoading === item.id ? (
-                          <CircularProgress size={20} />
-                        ) : (
-                          <DeleteIcon />
-                        )}
-                      </IconButton>
                     </Box>
                   </TableCell>
+                  {isAdmin && (
+                    <TableCell sx={{ fontSize: '0.9rem' }}>
+                      {type === 'package' ? (
+                        <Box>
+                          <Typography variant="body2" color="success.main" fontWeight={600}>
+                            ${(item as PackageRecord).packagePrice} package
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            ${((item as PackageRecord).packagePrice / item.totalSessions).toFixed(2)} per session
+                          </Typography>
+                        </Box>
+                      ) : (
+                        <Typography variant="body2" color="success.main" fontWeight={600}>
+                          {item.price > 0 ? `$${item.price}` : 'Free'}
+                        </Typography>
+                      )}
+                    </TableCell>
+                  )}
+                  {isAdmin && (
+                    <TableCell>
+                      <Box sx={{ display: 'flex', gap: 0.5 }}>
+                        {type === 'class' && (
+                          <IconButton
+                            onClick={() => onEdit(item as ClassRecord)}
+                            size="small"
+                            color="primary"
+                          >
+                            <EditIcon />
+                          </IconButton>
+                        )}
+                        <IconButton
+                          onClick={() => handleDeleteClick(type, item)}
+                          disabled={deleteLoading === item.id}
+                          color="error"
+                          size="small"
+                        >
+                          {deleteLoading === item.id ? (
+                            <CircularProgress size={20} />
+                          ) : (
+                            <DeleteIcon />
+                          )}
+                        </IconButton>
+                      </Box>
+                    </TableCell>
+                  )}
+                </TableRow>
+                
+                {/* Package Sessions Rows */}
+                {type === 'package' && expandedPackages.has(item.id) && (
+                  <TableRow>
+                    <TableCell colSpan={isAdmin ? 7 : 5} sx={{ py: 0, borderBottom: 'none' }}>
+                      <Collapse in={expandedPackages.has(item.id)}>
+                        <Box sx={{ py: 2, pl: 4, pr: 2 }}>
+                          <Typography variant="subtitle2" sx={{ mb: 2, fontWeight: 600, color: 'primary.main' }}>
+                            Package Sessions:
+                          </Typography>
+                          <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 1 }}>
+                            {(item as PackageRecord).sessions?.map((session) => (
+                              <Box 
+                                key={session.id}
+                                sx={{ 
+                                  p: 2, 
+                                  bgcolor: 'grey.50', 
+                                  borderRadius: 1,
+                                  borderLeft: '3px solid',
+                                  borderColor: 'primary.main'
+                                }}
+                              >
+                                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                  <Box>
+                                    <Typography variant="body2" fontWeight={500}>
+                                      Session {session.sessionNumber}
+                                    </Typography>
+                                    <Typography variant="caption" color="text.secondary">
+                                      {formatDateTime(session.date)} • {session.startTime}-{session.endTime}
+                                    </Typography>
+                                  </Box>
+                                  <Typography variant="caption" color="text.secondary">
+                                    {session.currentEnrollment}/{session.capacity} enrolled
+                                  </Typography>
+                                </Box>
+                              </Box>
+                            ))}
+                          </Box>
+                        </Box>
+                      </Collapse>
+                    </TableCell>
+                  </TableRow>
                 )}
-              </TableRow>
+              </React.Fragment>
             ))}
           </TableBody>
         </Table>
@@ -651,6 +833,16 @@ const ClassTable: React.FC<ClassTableProps> = ({ refreshTrigger, onEdit, filter 
             </Button>
           </DialogActions>
         </Dialog>
+      )}
+
+      {/* Package Session Manager */}
+      {isAdmin && (
+        <PackageSessionManager
+          open={sessionManagerOpen}
+          onClose={handleSessionManagerClose}
+          packageData={selectedPackage}
+          onUpdate={handleSessionManagerUpdate}
+        />
       )}
     </>
   );

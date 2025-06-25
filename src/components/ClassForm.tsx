@@ -43,7 +43,7 @@ import EventIcon from '@mui/icons-material/Event';
 import { DatePicker, TimePicker } from '@mui/x-date-pickers';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
-import { createClass, updateClass, getInstructors, ClassData } from '../services/classService';
+import { createClass, updateClass, getInstructors, ClassData, createPackage, PackageData } from '../services/classService';
 import { addDays, format, addWeeks, addMonths } from 'date-fns';
 import {
   optimizeImage,
@@ -110,6 +110,9 @@ const ClassForm: React.FC<ClassFormProps> = ({ open, onClose, editData }) => {
     },
     startDate: new Date(),
   });
+
+  // Paket fiyatı için ayrı state
+  const [packagePrice, setPackagePrice] = useState<number>(0);
 
   const [originalImageFile, setOriginalImageFile] = useState<File | null>(null);
   const [optimizedImage, setOptimizedImage] = useState<OptimizedImageResult | null>(null);
@@ -222,12 +225,12 @@ const ClassForm: React.FC<ClassFormProps> = ({ open, onClose, editData }) => {
     }
   };
 
-  const generateClassSchedule = () => {
+  const generateClassDates = () => {
     if (scheduleSettings.scheduleType === 'single') {
-      return [{ ...formData, date: scheduleSettings.startDate }];
+      return [scheduleSettings.startDate];
     }
 
-    const classes = [];
+    const dates = [];
     const endDate = calculateEndDate();
     let currentDate = new Date(scheduleSettings.startDate);
 
@@ -235,17 +238,13 @@ const ClassForm: React.FC<ClassFormProps> = ({ open, onClose, editData }) => {
       const dayOfWeek = currentDate.getDay();
       
       if (scheduleSettings.daysOfWeek.includes(dayOfWeek)) {
-        classes.push({
-          ...formData,
-          date: new Date(currentDate),
-          title: `${formData.title} - ${format(currentDate, 'MMM dd')}`
-        });
+        dates.push(new Date(currentDate));
       }
       
       currentDate = addDays(currentDate, 1);
     }
 
-    return classes;
+    return dates;
   };
 
   const handleSubmit = async () => {
@@ -265,9 +264,20 @@ const ClassForm: React.FC<ClassFormProps> = ({ open, onClose, editData }) => {
       return;
     }
 
-    if (scheduleSettings.scheduleType === 'recurring' && scheduleSettings.daysOfWeek.length === 0) {
-      setError('Please select at least one day for recurring classes');
-      return;
+    if (scheduleSettings.scheduleType === 'recurring') {
+      if (scheduleSettings.daysOfWeek.length === 0) {
+        setError('Please select at least one day for recurring classes');
+        return;
+      }
+      if (packagePrice <= 0) {
+        setError('Please set a package price for recurring classes');
+        return;
+      }
+    } else {
+      if (formData.price < 0) {
+        setError('Price cannot be negative');
+        return;
+      }
     }
 
     setLoading(true);
@@ -277,14 +287,41 @@ const ClassForm: React.FC<ClassFormProps> = ({ open, onClose, editData }) => {
       const imageFile = optimizedImage?.file || undefined;
 
       if (editData) {
-        // Edit existing class
+        // Edit existing single class
         await updateClass(editData.id, formData, imageFile);
       } else {
-        // Create new class(es)
-        const classesToCreate = generateClassSchedule();
-        
-        for (const classData of classesToCreate) {
+        if (scheduleSettings.scheduleType === 'single') {
+          // Create single class
+          const classData = {
+            ...formData,
+            date: scheduleSettings.startDate
+          };
           await createClass(classData, imageFile);
+        } else {
+          // Create package with multiple sessions
+          const classDates = generateClassDates();
+          
+          const packageData: PackageData = {
+            title: formData.title,
+            description: formData.description,
+            type: formData.type,
+            startTime: formData.startTime,
+            endTime: formData.endTime,
+            location: formData.location,
+            capacity: formData.capacity,
+            instructorId: formData.instructorId,
+            instructorName: formData.instructorName,
+            packagePrice: packagePrice,
+            totalSessions: classDates.length,
+            isActive: formData.isActive,
+            daysOfWeek: scheduleSettings.daysOfWeek,
+            startDate: scheduleSettings.startDate,
+            endDate: calculateEndDate(),
+            createdAt: null as any, // Will be set in service
+            updatedAt: null as any, // Will be set in service
+          };
+
+          await createPackage(packageData, classDates, imageFile);
         }
       }
       
@@ -322,6 +359,7 @@ const ClassForm: React.FC<ClassFormProps> = ({ open, onClose, editData }) => {
       },
       startDate: new Date(),
     });
+    setPackagePrice(0);
     setOriginalImageFile(null);
     setOptimizedImage(null);
     setImagePreview('');
@@ -532,7 +570,7 @@ const ClassForm: React.FC<ClassFormProps> = ({ open, onClose, editData }) => {
                   <FormControlLabel 
                     value="recurring" 
                     control={<Radio />} 
-                    label="Recurring Classes" 
+                    label="Recurring Package" 
                   />
                 </RadioGroup>
               </FormControl>
@@ -542,7 +580,7 @@ const ClassForm: React.FC<ClassFormProps> = ({ open, onClose, editData }) => {
             {scheduleSettings.scheduleType === 'single' ? (
               <Box sx={{ 
                 display: 'grid', 
-                gridTemplateColumns: { xs: '1fr', sm: 'repeat(3, 1fr)' }, 
+                gridTemplateColumns: { xs: '1fr', sm: 'repeat(4, 1fr)' }, 
                 gap: 2, 
                 mb: 2 
               }}>
@@ -591,6 +629,21 @@ const ClassForm: React.FC<ClassFormProps> = ({ open, onClose, editData }) => {
                     },
                   }}
                 />
+
+                {/* Single Class Price */}
+                <TextField
+                  label="Price"
+                  type="number"
+                  fullWidth
+                  value={formData.price}
+                  onChange={(e) => handleInputChange('price', parseFloat(e.target.value) || 0)}
+                  variant="outlined"
+                  size={isMobile ? "small" : "medium"}
+                  InputProps={{
+                    startAdornment: <InputAdornment position="start">$</InputAdornment>,
+                    inputProps: { min: 0, step: 0.01 }
+                  }}
+                />
               </Box>
             ) : (
               <Box>
@@ -618,7 +671,7 @@ const ClassForm: React.FC<ClassFormProps> = ({ open, onClose, editData }) => {
                 {/* Duration and Time Settings */}
                 <Box sx={{ 
                   display: 'grid', 
-                  gridTemplateColumns: { xs: '1fr', sm: 'repeat(5, 1fr)' }, 
+                  gridTemplateColumns: { xs: '1fr', sm: 'repeat(6, 1fr)' }, 
                   gap: 2, 
                   mb: 2 
                 }}>
@@ -694,16 +747,33 @@ const ClassForm: React.FC<ClassFormProps> = ({ open, onClose, editData }) => {
                       },
                     }}
                   />
+
+                  {/* Package Price */}
+                  <TextField
+                    label="Package Price *"
+                    type="number"
+                    fullWidth
+                    value={packagePrice}
+                    onChange={(e) => setPackagePrice(parseFloat(e.target.value) || 0)}
+                    variant="outlined"
+                    size={isMobile ? "small" : "medium"}
+                    InputProps={{
+                      startAdornment: <InputAdornment position="start">$</InputAdornment>,
+                      inputProps: { min: 0, step: 0.01 }
+                    }}
+                    helperText="Total price for entire package"
+                  />
                 </Box>
 
                 {/* Schedule Preview */}
-                {scheduleSettings.daysOfWeek.length > 0 && formData.startTime && formData.endTime && (
+                {scheduleSettings.daysOfWeek.length > 0 && formData.startTime && formData.endTime && packagePrice > 0 && (
                   <Alert severity="info" sx={{ mt: 2 }}>
                     <Typography variant="body2">
-                      <strong>Schedule Preview:</strong><br />
+                      <strong>Package Preview:</strong><br />
                       Classes will run from <strong>{format(scheduleSettings.startDate, 'MMM dd, yyyy')}</strong> to <strong>{format(calculateEndDate(), 'MMM dd, yyyy')}</strong><br />
-                      Total classes to be created: <strong>{generateClassSchedule().length}</strong><br />
-                      Time: <strong>{formData.startTime} - {formData.endTime}</strong>
+                      Total sessions: <strong>{generateClassDates().length}</strong><br />
+                      Time: <strong>{formData.startTime} - {formData.endTime}</strong><br />
+                      Package price: <strong>${packagePrice}</strong> (${(packagePrice / generateClassDates().length).toFixed(2)} per session)
                     </Typography>
                   </Alert>
                 )}
@@ -761,23 +831,7 @@ const ClassForm: React.FC<ClassFormProps> = ({ open, onClose, editData }) => {
                 InputProps={{
                   inputProps: { min: 1 }
                 }}
-              />
-            </Box>
-
-            {/* Price */}
-            <Box>
-              <TextField
-                label="Price"
-                type="number"
-                fullWidth
-                value={formData.price}
-                onChange={(e) => handleInputChange('price', parseFloat(e.target.value) || 0)}
-                variant="outlined"
-                size={isMobile ? "small" : "medium"}
-                InputProps={{
-                  startAdornment: <InputAdornment position="start">$</InputAdornment>,
-                  inputProps: { min: 0, step: 0.01 }
-                }}
+                helperText={scheduleSettings.scheduleType === 'recurring' ? 'Per session' : 'Total capacity'}
               />
             </Box>
           </Box>
@@ -808,7 +862,10 @@ const ClassForm: React.FC<ClassFormProps> = ({ open, onClose, editData }) => {
             disabled={loading || imageProcessing}
             size={isMobile ? "medium" : "medium"}
           >
-            {loading ? (editData ? 'Updating...' : 'Creating...') : (editData ? 'Update' : 'Create')}
+            {loading ? (editData ? 'Updating...' : 'Creating...') : (
+              editData ? 'Update' : 
+              scheduleSettings.scheduleType === 'recurring' ? 'Create Package' : 'Create Class'
+            )}
           </Button>
         </DialogActions>
       </Dialog>

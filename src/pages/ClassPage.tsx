@@ -19,6 +19,7 @@ import ClassTable from '../components/ClassTable';
 import ClassForm from '../components/ClassForm';
 import ProtectedComponent from '../components/ProtectedComponent';
 import { useRoleControl } from '../hooks/useRoleControl';
+import { ClassRecord, PackageRecord } from '../services/classService';
 
 const ClassesPage = () => {
   const [openForm, setOpenForm] = useState(false);
@@ -26,10 +27,53 @@ const ClassesPage = () => {
   const [editData, setEditData] = useState(null);
   const [tabValue, setTabValue] = useState(0);
   const [classFilter, setClassFilter] = useState<'all' | 'class' | 'workshop'>('all');
+  const [classList, setClassList] = useState<ClassRecord[]>([]);
+  const [packageList, setPackageList] = useState<PackageRecord[]>([]);
   
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const { canCreateClasses, isAdmin } = useRoleControl();
+
+  // Handle data loaded from ClassTable
+  const handleDataLoaded = ({ classList, packageList }: { classList: ClassRecord[], packageList: PackageRecord[] }) => {
+    setClassList(classList);
+    setPackageList(packageList);
+  };
+
+  // Calculate real stats from data
+  const stats = useMemo(() => {
+    // Count individual classes (not package sessions)
+    const individualClasses = classList.filter(c => !c.isPackage);
+    const regularClasses = individualClasses.filter(c => c.type === 'class');
+    const workshops = individualClasses.filter(c => c.type === 'workshop');
+    
+    // Calculate total enrollment for individual classes
+    const individualEnrollment = individualClasses.reduce((sum, c) => sum + (c.currentEnrollment || 0), 0);
+    
+    // Calculate package sessions enrollment
+    const packageEnrollment = packageList.reduce((total, pkg) => {
+      return total + (pkg.sessions?.reduce((sum: number, session: any) => sum + (session.currentEnrollment || 0), 0) || 0);
+    }, 0);
+    
+    const totalEnrollment = individualEnrollment + packageEnrollment;
+    
+    // Calculate total capacity
+    const individualCapacity = individualClasses.reduce((sum, c) => sum + (c.capacity || 0), 0);
+    const packageCapacity = packageList.reduce((total, pkg) => {
+      return total + (pkg.sessions?.reduce((sum: number, session: any) => sum + (session.capacity || 0), 0) || 0);
+    }, 0);
+    
+    const totalCapacity = individualCapacity + packageCapacity;
+    const avgCapacityPercentage = totalCapacity > 0 ? Math.round((totalEnrollment / totalCapacity) * 100) : 0;
+    
+    return {
+      totalClasses: individualClasses.length + packageList.length,
+      regularClasses: regularClasses.length,
+      workshops: workshops.length + packageList.filter(p => p.type === 'workshop').length,
+      totalEnrollment,
+      avgCapacityPercentage
+    };
+  }, [classList, packageList]);
 
   const handleFormClose = () => {
     setOpenForm(false);
@@ -163,7 +207,7 @@ const ClassesPage = () => {
           </Tabs>
         </Paper>
 
-        {/* Stats Cards - Sadece admin için */}
+        {/* Real Stats Cards - Sadece admin için */}
         <ProtectedComponent allowedRoles={['admin']}>
           <Box sx={{ 
             display: 'grid', 
@@ -177,16 +221,16 @@ const ClassesPage = () => {
           }}>
             <Paper sx={{ p: 2, textAlign: 'center' }}>
               <Typography variant="h4" color="primary" fontWeight="bold">
-                24
+                {stats.totalClasses}
               </Typography>
               <Typography variant="body2" color="text.secondary">
-                Total Classes
+                Total Classes & Packages
               </Typography>
             </Paper>
             
             <Paper sx={{ p: 2, textAlign: 'center' }}>
               <Typography variant="h4" color="secondary" fontWeight="bold">
-                8
+                {stats.workshops}
               </Typography>
               <Typography variant="body2" color="text.secondary">
                 Workshops
@@ -195,7 +239,7 @@ const ClassesPage = () => {
             
             <Paper sx={{ p: 2, textAlign: 'center' }}>
               <Typography variant="h4" color="success.main" fontWeight="bold">
-                156
+                {stats.totalEnrollment}
               </Typography>
               <Typography variant="body2" color="text.secondary">
                 Total Enrollment
@@ -204,7 +248,7 @@ const ClassesPage = () => {
             
             <Paper sx={{ p: 2, textAlign: 'center' }}>
               <Typography variant="h4" color="warning.main" fontWeight="bold">
-                85%
+                {stats.avgCapacityPercentage}%
               </Typography>
               <Typography variant="body2" color="text.secondary">
                 Avg. Capacity
@@ -223,6 +267,7 @@ const ClassesPage = () => {
             refreshTrigger={refreshTrigger}
             onEdit={handleEdit}
             filter={classFilter}
+            onDataLoaded={handleDataLoaded}
           />
         </Box>
       </Container>
