@@ -38,6 +38,10 @@ const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, handleDrawerToggle }) => 
     const { isAdmin, isTrainer, isStaff, userData } = useRoleControl();
 
     // Role-based menu items - sadece izin verilen ögeleri dahil et
+    // src/components/SideBar.tsx - Updated getMenuItems function
+
+    // Existing imports remain the same...
+
     const getMenuItems = () => {
         if (!userData) return [];
 
@@ -127,7 +131,7 @@ const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, handleDrawerToggle }) => 
                                 >
                                     {icon}
                                 </ListItemIcon>
-                                <ListItemText 
+                                <ListItemText
                                     primary={text}
                                     primaryTypographyProps={{
                                         fontSize: { xs: 14, sm: 16 },
@@ -162,7 +166,7 @@ const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, handleDrawerToggle }) => 
             >
                 {drawerContent}
             </Drawer>
-            
+
             {/* Desktop drawer */}
             <Drawer
                 variant="permanent"
