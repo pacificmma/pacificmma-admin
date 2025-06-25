@@ -21,16 +21,30 @@ import {
   LinearProgress,
   Chip,
   Tooltip,
+  FormControlLabel,
+  Checkbox,
+  FormGroup,
+  Radio,
+  RadioGroup,
+  FormLabel,
+  Paper,
+  Accordion,
+  AccordionSummary,
+  AccordionDetails,
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import PhotoCameraIcon from '@mui/icons-material/PhotoCamera';
 import CompressIcon from '@mui/icons-material/Compress';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import WarningIcon from '@mui/icons-material/Warning';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import RepeatIcon from '@mui/icons-material/Repeat';
+import EventIcon from '@mui/icons-material/Event';
 import { DatePicker, TimePicker } from '@mui/x-date-pickers';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { createClass, updateClass, getInstructors, ClassData } from '../services/classService';
+import { addDays, format, addWeeks, addMonths } from 'date-fns';
 import {
   optimizeImage,
   validateImageFile,
@@ -45,9 +59,30 @@ interface ClassFormProps {
   editData?: any;
 }
 
+interface ScheduleSettings {
+  scheduleType: 'single' | 'recurring';
+  daysOfWeek: number[]; // 0=Sunday, 1=Monday, etc.
+  duration: {
+    value: number;
+    unit: 'weeks' | 'months';
+  };
+  startDate: Date;
+  endDate?: Date;
+}
+
 const classTypes = [
   { value: 'class', label: 'Regular Class' },
   { value: 'workshop', label: 'Workshop' },
+];
+
+const weekDays = [
+  { value: 1, label: 'Monday' },
+  { value: 2, label: 'Tuesday' },
+  { value: 3, label: 'Wednesday' },
+  { value: 4, label: 'Thursday' },
+  { value: 5, label: 'Friday' },
+  { value: 6, label: 'Saturday' },
+  { value: 0, label: 'Sunday' },
 ];
 
 const ClassForm: React.FC<ClassFormProps> = ({ open, onClose, editData }) => {
@@ -64,6 +99,16 @@ const ClassForm: React.FC<ClassFormProps> = ({ open, onClose, editData }) => {
     instructorName: '',
     price: 0,
     isActive: true,
+  });
+
+  const [scheduleSettings, setScheduleSettings] = useState<ScheduleSettings>({
+    scheduleType: 'single',
+    daysOfWeek: [],
+    duration: {
+      value: 4,
+      unit: 'weeks'
+    },
+    startDate: new Date(),
   });
 
   const [originalImageFile, setOriginalImageFile] = useState<File | null>(null);
@@ -87,6 +132,11 @@ const ClassForm: React.FC<ClassFormProps> = ({ open, onClose, editData }) => {
           date: editData.date.toDate(),
         });
         setImagePreview(editData.imageUrl || '');
+        setScheduleSettings({
+          ...scheduleSettings,
+          scheduleType: 'single',
+          startDate: editData.date.toDate(),
+        });
       }
     }
   }, [open, editData]);
@@ -103,7 +153,6 @@ const ClassForm: React.FC<ClassFormProps> = ({ open, onClose, editData }) => {
   const handleInputChange = (field: keyof ClassData, value: any) => {
     setFormData(prev => ({ ...prev, [field]: value }));
 
-    // Update instructor name when instructor is selected
     if (field === 'instructorId') {
       const selectedInstructor = instructors.find(inst => inst.id === value);
       setFormData(prev => ({
@@ -112,6 +161,19 @@ const ClassForm: React.FC<ClassFormProps> = ({ open, onClose, editData }) => {
         instructorName: selectedInstructor?.name || ''
       }));
     }
+  };
+
+  const handleScheduleChange = (field: keyof ScheduleSettings, value: any) => {
+    setScheduleSettings(prev => ({ ...prev, [field]: value }));
+  };
+
+  const handleDayToggle = (day: number) => {
+    setScheduleSettings(prev => ({
+      ...prev,
+      daysOfWeek: prev.daysOfWeek.includes(day)
+        ? prev.daysOfWeek.filter(d => d !== day)
+        : [...prev.daysOfWeek, day]
+    }));
   };
 
   const handleImageChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -151,6 +213,41 @@ const ClassForm: React.FC<ClassFormProps> = ({ open, onClose, editData }) => {
     }
   };
 
+  const calculateEndDate = () => {
+    const { startDate, duration } = scheduleSettings;
+    if (duration.unit === 'weeks') {
+      return addWeeks(startDate, duration.value);
+    } else {
+      return addMonths(startDate, duration.value);
+    }
+  };
+
+  const generateClassSchedule = () => {
+    if (scheduleSettings.scheduleType === 'single') {
+      return [{ ...formData, date: scheduleSettings.startDate }];
+    }
+
+    const classes = [];
+    const endDate = calculateEndDate();
+    let currentDate = new Date(scheduleSettings.startDate);
+
+    while (currentDate <= endDate) {
+      const dayOfWeek = currentDate.getDay();
+      
+      if (scheduleSettings.daysOfWeek.includes(dayOfWeek)) {
+        classes.push({
+          ...formData,
+          date: new Date(currentDate),
+          title: `${formData.title} - ${format(currentDate, 'MMM dd')}`
+        });
+      }
+      
+      currentDate = addDays(currentDate, 1);
+    }
+
+    return classes;
+  };
+
   const handleSubmit = async () => {
     // Validation
     if (!formData.title.trim() || !formData.location.trim() || !formData.instructorId) {
@@ -168,6 +265,11 @@ const ClassForm: React.FC<ClassFormProps> = ({ open, onClose, editData }) => {
       return;
     }
 
+    if (scheduleSettings.scheduleType === 'recurring' && scheduleSettings.daysOfWeek.length === 0) {
+      setError('Please select at least one day for recurring classes');
+      return;
+    }
+
     setLoading(true);
     setError(null);
 
@@ -175,11 +277,17 @@ const ClassForm: React.FC<ClassFormProps> = ({ open, onClose, editData }) => {
       const imageFile = optimizedImage?.file || undefined;
 
       if (editData) {
+        // Edit existing class
         await updateClass(editData.id, formData, imageFile);
       } else {
-        await createClass(formData, imageFile);
+        // Create new class(es)
+        const classesToCreate = generateClassSchedule();
+        
+        for (const classData of classesToCreate) {
+          await createClass(classData, imageFile);
+        }
       }
-
+      
       handleClose();
     } catch (err: any) {
       console.error('Error saving class:', err);
@@ -204,6 +312,15 @@ const ClassForm: React.FC<ClassFormProps> = ({ open, onClose, editData }) => {
       instructorName: '',
       price: 0,
       isActive: true,
+    });
+    setScheduleSettings({
+      scheduleType: 'single',
+      daysOfWeek: [],
+      duration: {
+        value: 4,
+        unit: 'weeks'
+      },
+      startDate: new Date(),
     });
     setOriginalImageFile(null);
     setOptimizedImage(null);
@@ -235,9 +352,9 @@ const ClassForm: React.FC<ClassFormProps> = ({ open, onClose, editData }) => {
           pb: 1,
           fontSize: { xs: '1.1rem', sm: '1.25rem' }
         }}>
-          {editData ? 'Edit Class/Workshop' : 'Add New Class/Workshop'}
+          {editData ? 'Edit Class/Workshop' : 'Create New Class/Workshop'}
           {isMobile && (
-            <IconButton onClick={handleClose} size="small">
+            <IconButton onClick={handleClose} size="small" disabled={loading}>
               <CloseIcon />
             </IconButton>
           )}
@@ -389,62 +506,218 @@ const ClassForm: React.FC<ClassFormProps> = ({ open, onClose, editData }) => {
                 size={isMobile ? "small" : "medium"}
               />
             </Box>
+          </Box>
 
-            {/* Date */}
-            <Box>
-              <DatePicker
-                label="Date *"
-                value={formData.date}
-                onChange={(newValue) => newValue && handleInputChange('date', newValue)}
-                slotProps={{
-                  textField: {
-                    fullWidth: true,
-                    size: isMobile ? "small" : "medium",
-                  },
-                }}
-              />
-            </Box>
+          {/* Schedule Settings */}
+          <Paper sx={{ mt: 3, p: 2 }}>
+            <Typography variant="h6" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+              <EventIcon />
+              Schedule Settings
+            </Typography>
 
-            {/* Start Time */}
-            <Box>
-              <TimePicker
-                label="Start Time *"
-                value={formData.startTime ? new Date(`2000-01-01T${formData.startTime}`) : null}
-                onChange={(newValue) => {
-                  if (newValue) {
-                    const timeString = newValue.toTimeString().slice(0, 5);
-                    handleInputChange('startTime', timeString);
-                  }
-                }}
-                slotProps={{
-                  textField: {
-                    fullWidth: true,
-                    size: isMobile ? "small" : "medium",
-                  },
-                }}
-              />
-            </Box>
+            {/* Schedule Type Selection - Only for new classes */}
+            {!editData && (
+              <FormControl component="fieldset" sx={{ mb: 3 }}>
+                <FormLabel component="legend">Schedule Type</FormLabel>
+                <RadioGroup
+                  value={scheduleSettings.scheduleType}
+                  onChange={(e) => handleScheduleChange('scheduleType', e.target.value)}
+                  row
+                >
+                  <FormControlLabel 
+                    value="single" 
+                    control={<Radio />} 
+                    label="Single Class" 
+                  />
+                  <FormControlLabel 
+                    value="recurring" 
+                    control={<Radio />} 
+                    label="Recurring Classes" 
+                  />
+                </RadioGroup>
+              </FormControl>
+            )}
 
-            {/* End Time */}
-            <Box>
-              <TimePicker
-                label="End Time *"
-                value={formData.endTime ? new Date(`2000-01-01T${formData.endTime}`) : null}
-                onChange={(newValue) => {
-                  if (newValue) {
-                    const timeString = newValue.toTimeString().slice(0, 5);
-                    handleInputChange('endTime', timeString);
-                  }
-                }}
-                slotProps={{
-                  textField: {
-                    fullWidth: true,
-                    size: isMobile ? "small" : "medium",
-                  },
-                }}
-              />
-            </Box>
+            {/* Single Class Date or Recurring Settings */}
+            {scheduleSettings.scheduleType === 'single' ? (
+              <Box sx={{ 
+                display: 'grid', 
+                gridTemplateColumns: { xs: '1fr', sm: 'repeat(3, 1fr)' }, 
+                gap: 2, 
+                mb: 2 
+              }}>
+                <DatePicker
+                  label="Date *"
+                  value={scheduleSettings.startDate}
+                  onChange={(newValue) => newValue && handleScheduleChange('startDate', newValue)}
+                  slotProps={{
+                    textField: {
+                      fullWidth: true,
+                      size: isMobile ? "small" : "medium",
+                    },
+                  }}
+                />
+                
+                <TimePicker
+                  label="Start Time *"
+                  value={formData.startTime ? new Date(`2000-01-01T${formData.startTime}`) : null}
+                  onChange={(newValue) => {
+                    if (newValue) {
+                      const timeString = newValue.toTimeString().slice(0, 5);
+                      handleInputChange('startTime', timeString);
+                    }
+                  }}
+                  slotProps={{
+                    textField: {
+                      fullWidth: true,
+                      size: isMobile ? "small" : "medium",
+                    },
+                  }}
+                />
 
+                <TimePicker
+                  label="End Time *"
+                  value={formData.endTime ? new Date(`2000-01-01T${formData.endTime}`) : null}
+                  onChange={(newValue) => {
+                    if (newValue) {
+                      const timeString = newValue.toTimeString().slice(0, 5);
+                      handleInputChange('endTime', timeString);
+                    }
+                  }}
+                  slotProps={{
+                    textField: {
+                      fullWidth: true,
+                      size: isMobile ? "small" : "medium",
+                    },
+                  }}
+                />
+              </Box>
+            ) : (
+              <Box>
+                {/* Days of Week Selection */}
+                <Typography variant="subtitle2" sx={{ mb: 2, fontWeight: 600 }}>
+                  Select Days of Week
+                </Typography>
+                <FormGroup sx={{ mb: 3 }}>
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                    {weekDays.map((day) => (
+                      <FormControlLabel
+                        key={day.value}
+                        control={
+                          <Checkbox
+                            checked={scheduleSettings.daysOfWeek.includes(day.value)}
+                            onChange={() => handleDayToggle(day.value)}
+                          />
+                        }
+                        label={day.label}
+                      />
+                    ))}
+                  </Box>
+                </FormGroup>
+
+                {/* Duration and Time Settings */}
+                <Box sx={{ 
+                  display: 'grid', 
+                  gridTemplateColumns: { xs: '1fr', sm: 'repeat(5, 1fr)' }, 
+                  gap: 2, 
+                  mb: 2 
+                }}>
+                  <DatePicker
+                    label="Start Date *"
+                    value={scheduleSettings.startDate}
+                    onChange={(newValue) => newValue && handleScheduleChange('startDate', newValue)}
+                    slotProps={{
+                      textField: {
+                        fullWidth: true,
+                        size: isMobile ? "small" : "medium",
+                      },
+                    }}
+                  />
+                  
+                  <TextField
+                    label="Duration *"
+                    type="number"
+                    value={scheduleSettings.duration.value}
+                    onChange={(e) => handleScheduleChange('duration', {
+                      ...scheduleSettings.duration,
+                      value: parseInt(e.target.value) || 1
+                    })}
+                    InputProps={{ inputProps: { min: 1, max: 52 } }}
+                    size={isMobile ? "small" : "medium"}
+                  />
+                  
+                  <FormControl size={isMobile ? "small" : "medium"}>
+                    <InputLabel>Unit</InputLabel>
+                    <Select
+                      value={scheduleSettings.duration.unit}
+                      label="Unit"
+                      onChange={(e) => handleScheduleChange('duration', {
+                        ...scheduleSettings.duration,
+                        unit: e.target.value as 'weeks' | 'months'
+                      })}
+                    >
+                      <MenuItem value="weeks">Weeks</MenuItem>
+                      <MenuItem value="months">Months</MenuItem>
+                    </Select>
+                  </FormControl>
+
+                  <TimePicker
+                    label="Start Time *"
+                    value={formData.startTime ? new Date(`2000-01-01T${formData.startTime}`) : null}
+                    onChange={(newValue) => {
+                      if (newValue) {
+                        const timeString = newValue.toTimeString().slice(0, 5);
+                        handleInputChange('startTime', timeString);
+                      }
+                    }}
+                    slotProps={{
+                      textField: {
+                        fullWidth: true,
+                        size: isMobile ? "small" : "medium",
+                      },
+                    }}
+                  />
+
+                  <TimePicker
+                    label="End Time *"
+                    value={formData.endTime ? new Date(`2000-01-01T${formData.endTime}`) : null}
+                    onChange={(newValue) => {
+                      if (newValue) {
+                        const timeString = newValue.toTimeString().slice(0, 5);
+                        handleInputChange('endTime', timeString);
+                      }
+                    }}
+                    slotProps={{
+                      textField: {
+                        fullWidth: true,
+                        size: isMobile ? "small" : "medium",
+                      },
+                    }}
+                  />
+                </Box>
+
+                {/* Schedule Preview */}
+                {scheduleSettings.daysOfWeek.length > 0 && formData.startTime && formData.endTime && (
+                  <Alert severity="info" sx={{ mt: 2 }}>
+                    <Typography variant="body2">
+                      <strong>Schedule Preview:</strong><br />
+                      Classes will run from <strong>{format(scheduleSettings.startDate, 'MMM dd, yyyy')}</strong> to <strong>{format(calculateEndDate(), 'MMM dd, yyyy')}</strong><br />
+                      Total classes to be created: <strong>{generateClassSchedule().length}</strong><br />
+                      Time: <strong>{formData.startTime} - {formData.endTime}</strong>
+                    </Typography>
+                  </Alert>
+                )}
+              </Box>
+            )}
+          </Paper>
+
+          {/* Additional Details */}
+          <Box sx={{
+            display: 'grid',
+            gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', md: 'repeat(3, 1fr)' },
+            gap: 3,
+            mt: 3
+          }}>
             {/* Location */}
             <Box>
               <TextField

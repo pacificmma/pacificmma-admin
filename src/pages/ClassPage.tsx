@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   Typography,
   Box,
@@ -14,6 +14,7 @@ import {
 import AddIcon from '@mui/icons-material/Add';
 import FitnessCenterIcon from '@mui/icons-material/FitnessCenter';
 import WorkshopIcon from '@mui/icons-material/School';
+import ViewListIcon from '@mui/icons-material/ViewList';
 import ClassTable from '../components/ClassTable';
 import ClassForm from '../components/ClassForm';
 import ProtectedComponent from '../components/ProtectedComponent';
@@ -24,6 +25,8 @@ const ClassesPage = () => {
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [editData, setEditData] = useState(null);
   const [tabValue, setTabValue] = useState(0);
+  const [classFilter, setClassFilter] = useState<'all' | 'class' | 'workshop'>('all');
+  
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const { canCreateClasses, isAdmin } = useRoleControl();
@@ -47,6 +50,21 @@ const ClassesPage = () => {
 
   const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
     setTabValue(newValue);
+    
+    // Set filter based on tab
+    switch (newValue) {
+      case 0:
+        setClassFilter('all');
+        break;
+      case 1:
+        setClassFilter('class');
+        break;
+      case 2:
+        setClassFilter('workshop');
+        break;
+      default:
+        setClassFilter('all');
+    }
   };
 
   return (
@@ -125,7 +143,7 @@ const ClassesPage = () => {
             }}
           >
             <Tab 
-              icon={<FitnessCenterIcon />} 
+              icon={<ViewListIcon />} 
               label="All Classes & Workshops" 
               iconPosition="start"
               sx={{ gap: 1 }}
@@ -195,7 +213,7 @@ const ClassesPage = () => {
           </Box>
         </ProtectedComponent>
 
-        {/* Classes Table/Cards */}
+        {/* Classes Table/Cards with Filter */}
         <Box sx={{ 
           width: '100%',
           overflow: 'hidden'
@@ -204,6 +222,7 @@ const ClassesPage = () => {
             key={refreshTrigger} 
             refreshTrigger={refreshTrigger}
             onEdit={handleEdit}
+            filter={classFilter}
           />
         </Box>
       </Container>
