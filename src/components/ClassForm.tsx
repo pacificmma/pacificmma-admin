@@ -18,13 +18,26 @@ import {
   InputLabel,
   Select,
   Avatar,
+  LinearProgress,
+  Chip,
+  Tooltip,
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import PhotoCameraIcon from '@mui/icons-material/PhotoCamera';
+import CompressIcon from '@mui/icons-material/Compress';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import WarningIcon from '@mui/icons-material/Warning';
 import { DatePicker, TimePicker } from '@mui/x-date-pickers';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { createClass, updateClass, getInstructors, ClassData } from '../services/classService';
+import {
+  optimizeImage,
+  validateImageFile,
+  formatFileSize,
+  DEFAULT_CLASS_IMAGE_OPTIONS,
+  OptimizedImageResult
+} from '../utils/imageUtils';
 
 interface ClassFormProps {
   open: boolean;
@@ -53,11 +66,14 @@ const ClassForm: React.FC<ClassFormProps> = ({ open, onClose, editData }) => {
     isActive: true,
   });
 
-  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [originalImageFile, setOriginalImageFile] = useState<File | null>(null);
+  const [optimizedImage, setOptimizedImage] = useState<OptimizedImageResult | null>(null);
   const [imagePreview, setImagePreview] = useState<string>('');
+  const [imageProcessing, setImageProcessing] = useState(false);
   const [instructors, setInstructors] = useState<{ id: string; name: string }[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [imageError, setImageError] = useState<string | null>(null);
 
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
@@ -86,27 +102,52 @@ const ClassForm: React.FC<ClassFormProps> = ({ open, onClose, editData }) => {
 
   const handleInputChange = (field: keyof ClassData, value: any) => {
     setFormData(prev => ({ ...prev, [field]: value }));
-    
+
     // Update instructor name when instructor is selected
     if (field === 'instructorId') {
       const selectedInstructor = instructors.find(inst => inst.id === value);
-      setFormData(prev => ({ 
-        ...prev, 
+      setFormData(prev => ({
+        ...prev,
         instructorId: value,
         instructorName: selectedInstructor?.name || ''
       }));
     }
   };
 
-  const handleImageChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (file) {
-      setImageFile(file);
-      const reader = new FileReader();
-      reader.onload = () => {
-        setImagePreview(reader.result as string);
-      };
-      reader.readAsDataURL(file);
+    if (!file) return;
+
+    setImageError(null);
+    setImageProcessing(true);
+
+    try {
+      // Validate file
+      const validation = validateImageFile(file);
+      if (!validation.isValid) {
+        setImageError(validation.error || 'Invalid file');
+        setImageProcessing(false);
+        return;
+      }
+
+      setOriginalImageFile(file);
+
+      // Optimize image
+      const optimized = await optimizeImage(file, DEFAULT_CLASS_IMAGE_OPTIONS);
+      setOptimizedImage(optimized);
+      setImagePreview(optimized.preview);
+
+      console.log('Image optimization complete:', {
+        original: formatFileSize(optimized.originalSize),
+        optimized: formatFileSize(optimized.optimizedSize),
+        compression: `${Math.round((1 - optimized.compressionRatio) * 100)}%`
+      });
+
+    } catch (error: any) {
+      console.error('Image optimization error:', error);
+      setImageError(error.message || 'Failed to process image');
+    } finally {
+      setImageProcessing(false);
     }
   };
 
@@ -131,12 +172,14 @@ const ClassForm: React.FC<ClassFormProps> = ({ open, onClose, editData }) => {
     setError(null);
 
     try {
+      const imageFile = optimizedImage?.file || undefined;
+
       if (editData) {
-        await updateClass(editData.id, formData, imageFile || undefined);
+        await updateClass(editData.id, formData, imageFile);
       } else {
-        await createClass(formData, imageFile || undefined);
+        await createClass(formData, imageFile);
       }
-      
+
       handleClose();
     } catch (err: any) {
       console.error('Error saving class:', err);
@@ -162,17 +205,19 @@ const ClassForm: React.FC<ClassFormProps> = ({ open, onClose, editData }) => {
       price: 0,
       isActive: true,
     });
-    setImageFile(null);
+    setOriginalImageFile(null);
+    setOptimizedImage(null);
     setImagePreview('');
     setError(null);
+    setImageError(null);
   };
 
   return (
     <LocalizationProvider dateAdapter={AdapterDateFns}>
-      <Dialog 
-        open={open} 
+      <Dialog
+        open={open}
         onClose={handleClose}
-        fullWidth 
+        fullWidth
         maxWidth="md"
         fullScreen={isMobile}
         sx={{
@@ -183,9 +228,9 @@ const ClassForm: React.FC<ClassFormProps> = ({ open, onClose, editData }) => {
           },
         }}
       >
-        <DialogTitle sx={{ 
-          display: 'flex', 
-          justifyContent: 'space-between', 
+        <DialogTitle sx={{
+          display: 'flex',
+          justifyContent: 'space-between',
           alignItems: 'center',
           pb: 1,
           fontSize: { xs: '1.1rem', sm: '1.25rem' }
@@ -197,53 +242,106 @@ const ClassForm: React.FC<ClassFormProps> = ({ open, onClose, editData }) => {
             </IconButton>
           )}
         </DialogTitle>
-        
+
         <DialogContent sx={{ px: { xs: 2, sm: 3 } }}>
           {error && (
             <Alert severity="error" sx={{ mb: 2 }}>
               {error}
             </Alert>
           )}
-          
-          <Box sx={{ 
+
+          <Box sx={{
             display: 'grid',
             gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', md: 'repeat(3, 1fr)' },
             gap: 3,
-            mt: 0.5 
+            mt: 0.5
           }}>
-            {/* Image Upload */}
+            {/* Enhanced Image Upload Section */}
             <Box sx={{ gridColumn: { xs: '1', sm: '1 / -1' } }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+              <Typography variant="subtitle2" sx={{ mb: 2, fontWeight: 600 }}>
+                Class Image (Optional)
+              </Typography>
+
+              <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 2 }}>
                 <Avatar
                   src={imagePreview}
-                  sx={{ 
-                    width: 80, 
-                    height: 80, 
+                  sx={{
+                    width: 100,
+                    height: 100,
                     bgcolor: 'grey.200',
                     border: '2px dashed',
-                    borderColor: 'grey.300'
+                    borderColor: imageError ? 'error.main' : 'grey.300'
                   }}
                 >
                   <PhotoCameraIcon />
                 </Avatar>
-                <Box>
-                  <Typography variant="body2" color="text.secondary" gutterBottom>
-                    Class Image
-                  </Typography>
+
+                <Box sx={{ flex: 1 }}>
                   <Button
                     variant="outlined"
                     component="label"
                     size="small"
-                    startIcon={<PhotoCameraIcon />}
+                    startIcon={imageProcessing ? <CompressIcon /> : <PhotoCameraIcon />}
+                    disabled={imageProcessing || loading}
+                    sx={{ mb: 1 }}
                   >
-                    Upload Image
+                    {imageProcessing ? 'Processing...' : 'Upload Image'}
                     <input
                       type="file"
                       hidden
-                      accept="image/*"
+                      accept="image/jpeg,image/jpg,image/png,image/webp"
                       onChange={handleImageChange}
                     />
                   </Button>
+
+                  {imageProcessing && (
+                    <Box sx={{ mb: 1 }}>
+                      <LinearProgress variant="indeterminate" />
+                      <Typography variant="caption" color="text.secondary">
+                        Optimizing image...
+                      </Typography>
+                    </Box>
+                  )}
+
+                  {optimizedImage && (
+                    <Box sx={{ mb: 1 }}>
+                      <Box sx={{ display: 'flex', gap: 1, mb: 0.5 }}>
+                        <Chip
+                          icon={<CheckCircleIcon />}
+                          label="Optimized"
+                          size="small"
+                          color="success"
+                          variant="outlined"
+                        />
+                        <Tooltip title={`Compressed from ${formatFileSize(optimizedImage.originalSize)} to ${formatFileSize(optimizedImage.optimizedSize)}`}>
+                          <Chip
+                            icon={<CompressIcon />}
+                            label={`-${Math.round((1 - optimizedImage.compressionRatio) * 100)}%`}
+                            size="small"
+                            color="info"
+                            variant="outlined"
+                          />
+                        </Tooltip>
+                      </Box>
+                      <Typography variant="caption" color="text.secondary">
+                        Final size: {formatFileSize(optimizedImage.optimizedSize)}
+                      </Typography>
+                    </Box>
+                  )}
+
+                  {imageError && (
+                    <Alert severity="error" icon={<WarningIcon />} sx={{ mt: 1 }}>
+                      <Typography variant="caption">
+                        {imageError}
+                      </Typography>
+                    </Alert>
+                  )}
+
+                  <Typography variant="caption" color="text.secondary" display="block">
+                    Recommended: JPG/PNG under 2MB
+                    <br />
+                    Will be optimized to max 500KB
+                  </Typography>
                 </Box>
               </Box>
             </Box>
@@ -411,9 +509,9 @@ const ClassForm: React.FC<ClassFormProps> = ({ open, onClose, editData }) => {
             </Box>
           </Box>
         </DialogContent>
-        
-        <DialogActions sx={{ 
-          px: { xs: 2, sm: 3 }, 
+
+        <DialogActions sx={{
+          px: { xs: 2, sm: 3 },
           pb: { xs: 2, sm: 3 },
           pt: 1,
           gap: 1,
@@ -423,18 +521,18 @@ const ClassForm: React.FC<ClassFormProps> = ({ open, onClose, editData }) => {
             minWidth: { sm: 80 }
           }
         }}>
-          <Button 
-            onClick={handleClose} 
-            disabled={loading}
+          <Button
+            onClick={handleClose}
+            disabled={loading || imageProcessing}
             variant="outlined"
             size={isMobile ? "medium" : "medium"}
           >
             Cancel
           </Button>
-          <Button 
-            onClick={handleSubmit} 
-            variant="contained" 
-            disabled={loading}
+          <Button
+            onClick={handleSubmit}
+            variant="contained"
+            disabled={loading || imageProcessing}
             size={isMobile ? "medium" : "medium"}
           >
             {loading ? (editData ? 'Updating...' : 'Creating...') : (editData ? 'Update' : 'Create')}

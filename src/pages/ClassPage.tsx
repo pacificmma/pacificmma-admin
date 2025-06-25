@@ -18,8 +18,6 @@ import ClassTable from '../components/ClassTable';
 import ClassForm from '../components/ClassForm';
 import ProtectedComponent from '../components/ProtectedComponent';
 import { useRoleControl } from '../hooks/useRoleControl';
-import FirebaseConnectionTest from '../components/FireBaseConnectionTest';
-
 
 const ClassesPage = () => {
   const [openForm, setOpenForm] = useState(false);
@@ -53,7 +51,6 @@ const ClassesPage = () => {
 
   return (
     <>
-    <FirebaseConnectionTest />
       <Container 
         maxWidth="xl" 
         sx={{ 
@@ -87,28 +84,30 @@ const ClassesPage = () => {
             </Typography>
           </Box>
           
-          {/* Desktop Add Button - Only for Admins */}
-          {!isMobile && canCreateClasses && (
-            <Button 
-              variant="contained" 
-              startIcon={<AddIcon />}
-              onClick={handleAddNew}
-              size="large"
-              sx={{
-                px: 3,
-                py: 1.5,
-                fontSize: '0.95rem',
-                fontWeight: 600,
-                borderRadius: 2,
-                boxShadow: 3,
-                '&:hover': {
-                  boxShadow: 6,
-                },
-              }}
-            >
-              Add Class/Workshop
-            </Button>
-          )}
+          {/* Desktop Add Button - Sadece admin için */}
+          <ProtectedComponent allowedRoles={['admin']}>
+            {!isMobile && (
+              <Button 
+                variant="contained" 
+                startIcon={<AddIcon />}
+                onClick={handleAddNew}
+                size="large"
+                sx={{
+                  px: 3,
+                  py: 1.5,
+                  fontSize: '0.95rem',
+                  fontWeight: 600,
+                  borderRadius: 2,
+                  boxShadow: 3,
+                  '&:hover': {
+                    boxShadow: 6,
+                  },
+                }}
+              >
+                Add Class/Workshop
+              </Button>
+            )}
+          </ProtectedComponent>
         </Box>
 
         {/* Filter Tabs */}
@@ -146,7 +145,7 @@ const ClassesPage = () => {
           </Tabs>
         </Paper>
 
-        {/* Stats Cards - Only for Admins */}
+        {/* Stats Cards - Sadece admin için */}
         <ProtectedComponent allowedRoles={['admin']}>
           <Box sx={{ 
             display: 'grid', 
@@ -205,40 +204,41 @@ const ClassesPage = () => {
             key={refreshTrigger} 
             refreshTrigger={refreshTrigger}
             onEdit={handleEdit}
-            showAdminFeatures={isAdmin}
           />
         </Box>
       </Container>
 
-      {/* Mobile Floating Action Button - Only for Admins */}
-      {isMobile && canCreateClasses && (
-        <Fab
-          color="primary"
-          aria-label="add class"
-          onClick={handleAddNew}
-          sx={{
-            position: 'fixed',
-            bottom: { xs: 24, sm: 32 },
-            right: { xs: 24, sm: 32 },
-            zIndex: theme.zIndex.speedDial,
-            boxShadow: 6,
-            '&:hover': {
-              boxShadow: 12,
-            },
-          }}
-        >
-          <AddIcon />
-        </Fab>
-      )}
+      {/* Mobile Floating Action Button - Sadece admin için */}
+      <ProtectedComponent allowedRoles={['admin']}>
+        {isMobile && (
+          <Fab
+            color="primary"
+            aria-label="add class"
+            onClick={handleAddNew}
+            sx={{
+              position: 'fixed',
+              bottom: { xs: 24, sm: 32 },
+              right: { xs: 24, sm: 32 },
+              zIndex: theme.zIndex.speedDial,
+              boxShadow: 6,
+              '&:hover': {
+                boxShadow: 12,
+              },
+            }}
+          >
+            <AddIcon />
+          </Fab>
+        )}
+      </ProtectedComponent>
 
-      {/* Class/Workshop Form Modal - Only for Admins */}
-      {canCreateClasses && (
+      {/* Class/Workshop Form Modal - Sadece admin için */}
+      <ProtectedComponent allowedRoles={['admin']}>
         <ClassForm 
           open={openForm} 
           onClose={handleFormClose}
           editData={editData}
         />
-      )}
+      </ProtectedComponent>
     </>
   );
 };

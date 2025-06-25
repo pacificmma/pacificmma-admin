@@ -35,34 +35,35 @@ const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, handleDrawerToggle }) => 
     const location = useLocation();
     const theme = useTheme();
     const isMobile = useMediaQuery(theme.breakpoints.down('md'));
-    const { isAdmin, isTrainer, isStaff } = useRoleControl();
+    const { isAdmin, isTrainer, isStaff, userData } = useRoleControl();
 
-    // Role-based menu items
+    // Role-based menu items - sadece izin verilen ögeleri dahil et
     const getMenuItems = () => {
-        const baseItems = [
-            { text: 'Dashboard', icon: <DashboardIcon />, path: '/dashboard' },
-            { text: 'Classes', icon: <FitnessCenterIcon />, path: '/classes' },
-        ];
+        if (!userData) return [];
 
-        // Admin can see everything
+        const items = [];
+
+        // Herkes için dashboard ve classes
+        items.push(
+            { text: 'Dashboard', icon: <DashboardIcon />, path: '/dashboard' },
+            { text: 'Classes', icon: <FitnessCenterIcon />, path: '/classes' }
+        );
+
+        // Trainer/Staff için özel schedule
+        if (isTrainer || isStaff) {
+            items.push({ text: 'My Schedule', icon: <CalendarMonthIcon />, path: '/my-schedule' });
+        }
+
+        // Sadece admin için
         if (isAdmin) {
-            return [
-                ...baseItems,
+            items.push(
                 { text: 'Members', icon: <GroupIcon />, path: '/members' },
                 { text: 'Discounts', icon: <DiscountIcon />, path: '/discounts' },
-                { text: 'Staff', icon: <SportsMartialArtsIcon />, path: '/staff' },
-            ];
+                { text: 'Staff', icon: <SportsMartialArtsIcon />, path: '/staff' }
+            );
         }
 
-        // Trainer/Staff can see limited items
-        if (isTrainer || isStaff) {
-            return [
-                ...baseItems,
-                { text: 'My Schedule', icon: <CalendarMonthIcon />, path: '/my-schedule' },
-            ];
-        }
-
-        return baseItems;
+        return items;
     };
 
     const menuItems = getMenuItems();

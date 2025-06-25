@@ -1,18 +1,19 @@
 // src/components/ProtectedComponent.tsx
 import React from 'react';
-import { Box, Typography, Paper } from '@mui/material';
 import { useRoleControl, UserRole } from '../hooks/useRoleControl';
 
 interface ProtectedComponentProps {
   children: React.ReactNode;
   allowedRoles: UserRole[];
-  fallbackMessage?: string;
+  fallbackComponent?: React.ReactNode;
+  showFallback?: boolean;
 }
 
 const ProtectedComponent: React.FC<ProtectedComponentProps> = ({ 
   children, 
   allowedRoles, 
-  fallbackMessage = "You don't have permission to access this feature." 
+  fallbackComponent = null,
+  showFallback = false
 }) => {
   const { userData, loading } = useRoleControl();
 
@@ -20,14 +21,9 @@ const ProtectedComponent: React.FC<ProtectedComponentProps> = ({
     return null;
   }
 
+  // Eğer izin yoksa hiçbir şey gösterme (varsayılan davranış)
   if (!userData || !allowedRoles.includes(userData.role)) {
-    return (
-      <Paper sx={{ p: 3, textAlign: 'center', bgcolor: 'warning.lighter' }}>
-        <Typography variant="body1" color="warning.dark">
-          {fallbackMessage}
-        </Typography>
-      </Paper>
-    );
+    return showFallback ? <>{fallbackComponent}</> : null;
   }
 
   return <>{children}</>;

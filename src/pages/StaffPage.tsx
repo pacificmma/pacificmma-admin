@@ -11,7 +11,7 @@ import {
 import AddIcon from '@mui/icons-material/Add';
 import StaffTable from '../components/StaffTable';
 import StaffForm from '../components/StaffForm';
-import ProtectedComponent from '../components/ProtectedComponent';
+import ConditionalRender from '../components/ConditionalRender';
 
 const StaffPage = () => {
   const [openForm, setOpenForm] = useState(false);
@@ -26,9 +26,18 @@ const StaffPage = () => {
   };
 
   return (
-    <ProtectedComponent 
-      allowedRoles={['admin']} 
-      fallbackMessage="Only administrators can access staff management."
+    <ConditionalRender 
+      allowedRoles={['admin']}
+      fallback={
+        <Container maxWidth="lg" sx={{ py: 4, textAlign: 'center' }}>
+          <Typography variant="h5" color="text.secondary">
+            Access Denied
+          </Typography>
+          <Typography variant="body1" color="text.secondary" sx={{ mt: 1 }}>
+            Only administrators can access staff management.
+          </Typography>
+        </Container>
+      }
     >
       <Container 
         maxWidth="lg" 
@@ -112,7 +121,7 @@ const StaffPage = () => {
 
       {/* Staff Form Modal */}
       <StaffForm open={openForm} onClose={handleFormClose} />
-    </ProtectedComponent>
+    </ConditionalRender>
   );
 };
 

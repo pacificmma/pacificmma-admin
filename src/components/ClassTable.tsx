@@ -35,14 +35,14 @@ import AttachMoneyIcon from '@mui/icons-material/AttachMoney';
 import GroupIcon from '@mui/icons-material/Group';
 import { getAllClasses, deleteClass, ClassRecord } from '../services/classService';
 import { format } from 'date-fns';
+import { useRoleControl } from '../hooks/useRoleControl';
 
 interface ClassTableProps {
   refreshTrigger?: number;
   onEdit: (classData: ClassRecord) => void;
-  showAdminFeatures?: boolean;
 }
 
-const ClassTable: React.FC<ClassTableProps> = ({ refreshTrigger, onEdit, showAdminFeatures = false }) => {
+const ClassTable: React.FC<ClassTableProps> = ({ refreshTrigger, onEdit }) => {
   const [classList, setClassList] = useState<ClassRecord[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [deleteLoading, setDeleteLoading] = useState<string | null>(null);
@@ -52,6 +52,7 @@ const ClassTable: React.FC<ClassTableProps> = ({ refreshTrigger, onEdit, showAdm
   
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
+  const { isAdmin } = useRoleControl();
 
   const fetchClasses = async () => {
     try {
@@ -235,56 +236,57 @@ const ClassTable: React.FC<ClassTableProps> = ({ refreshTrigger, onEdit, showAdm
                 </Box>
               </CardContent>
               
-              <CardActions sx={{ justifyContent: 'flex-end', pt: 0 }}>
-                {showAdminFeatures && (
-                  <>
-                    <IconButton
-                      onClick={() => onEdit(classItem)}
-                      size="small"
-                      color="primary"
-                    >
-                      <EditIcon />
-                    </IconButton>
-                    <IconButton
-                      onClick={() => handleDeleteClick(classItem)}
-                      disabled={deleteLoading === classItem.id}
-                      color="error"
-                      size="small"
-                    >
-                      {deleteLoading === classItem.id ? (
-                        <CircularProgress size={20} />
-                      ) : (
-                        <DeleteIcon />
-                      )}
-                    </IconButton>
-                  </>
-                )}
-              </CardActions>
+              {/* Sadece admin ise action buttons göster */}
+              {isAdmin && (
+                <CardActions sx={{ justifyContent: 'flex-end', pt: 0 }}>
+                  <IconButton
+                    onClick={() => onEdit(classItem)}
+                    size="small"
+                    color="primary"
+                  >
+                    <EditIcon />
+                  </IconButton>
+                  <IconButton
+                    onClick={() => handleDeleteClick(classItem)}
+                    disabled={deleteLoading === classItem.id}
+                    color="error"
+                    size="small"
+                  >
+                    {deleteLoading === classItem.id ? (
+                      <CircularProgress size={20} />
+                    ) : (
+                      <DeleteIcon />
+                    )}
+                  </IconButton>
+                </CardActions>
+              )}
             </Card>
           ))}
         </Box>
 
-        {/* Delete Confirmation Dialog */}
-        <Dialog open={deleteDialogOpen} onClose={handleDeleteCancel}>
-          <DialogTitle>Delete Class</DialogTitle>
-          <DialogContent>
-            <Typography>
-              Are you sure you want to delete <strong>{classToDelete?.title}</strong>?
-              This action cannot be undone.
-            </Typography>
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={handleDeleteCancel}>Cancel</Button>
-            <Button 
-              onClick={handleDeleteConfirm} 
-              color="error" 
-              variant="contained"
-              disabled={deleteLoading !== null}
-            >
-              {deleteLoading ? 'Deleting...' : 'Delete'}
-            </Button>
-          </DialogActions>
-        </Dialog>
+        {/* Delete Confirmation Dialog - Sadece admin ise göster */}
+        {isAdmin && (
+          <Dialog open={deleteDialogOpen} onClose={handleDeleteCancel}>
+            <DialogTitle>Delete Class</DialogTitle>
+            <DialogContent>
+              <Typography>
+                Are you sure you want to delete <strong>{classToDelete?.title}</strong>?
+                This action cannot be undone.
+              </Typography>
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={handleDeleteCancel}>Cancel</Button>
+              <Button 
+                onClick={handleDeleteConfirm} 
+                color="error" 
+                variant="contained"
+                disabled={deleteLoading !== null}
+              >
+                {deleteLoading ? 'Deleting...' : 'Delete'}
+              </Button>
+            </DialogActions>
+          </Dialog>
+        )}
       </>
     );
   }
@@ -314,7 +316,8 @@ const ClassTable: React.FC<ClassTableProps> = ({ refreshTrigger, onEdit, showAdm
               <TableCell sx={{ fontWeight: 600, fontSize: '0.95rem' }}>
                 Price
               </TableCell>
-              {showAdminFeatures && (
+              {/* Sadece admin ise Actions sütununu göster */}
+              {isAdmin && (
                 <TableCell sx={{ fontWeight: 600, fontSize: '0.95rem', width: 120 }}>
                   Actions
                 </TableCell>
@@ -388,7 +391,8 @@ const ClassTable: React.FC<ClassTableProps> = ({ refreshTrigger, onEdit, showAdm
                     </Typography>
                   )}
                 </TableCell>
-                {showAdminFeatures && (
+                {/* Sadece admin ise Actions hücresini göster */}
+                {isAdmin && (
                   <TableCell>
                     <Box sx={{ display: 'flex', gap: 0.5 }}>
                       <IconButton
@@ -419,27 +423,29 @@ const ClassTable: React.FC<ClassTableProps> = ({ refreshTrigger, onEdit, showAdm
         </Table>
       </TableContainer>
 
-      {/* Delete Confirmation Dialog */}
-      <Dialog open={deleteDialogOpen} onClose={handleDeleteCancel}>
-        <DialogTitle>Delete Class</DialogTitle>
-        <DialogContent>
-          <Typography>
-            Are you sure you want to delete <strong>{classToDelete?.title}</strong>?
-            This action cannot be undone.
-          </Typography>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={handleDeleteCancel}>Cancel</Button>
-          <Button 
-            onClick={handleDeleteConfirm} 
-            color="error" 
-            variant="contained"
-            disabled={deleteLoading !== null}
-          >
-            {deleteLoading ? 'Deleting...' : 'Delete'}
-          </Button>
-        </DialogActions>
-      </Dialog>
+      {/* Delete Confirmation Dialog - Sadece admin ise göster */}
+      {isAdmin && (
+        <Dialog open={deleteDialogOpen} onClose={handleDeleteCancel}>
+          <DialogTitle>Delete Class</DialogTitle>
+          <DialogContent>
+            <Typography>
+              Are you sure you want to delete <strong>{classToDelete?.title}</strong>?
+              This action cannot be undone.
+            </Typography>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={handleDeleteCancel}>Cancel</Button>
+            <Button 
+              onClick={handleDeleteConfirm} 
+              color="error" 
+              variant="contained"
+              disabled={deleteLoading !== null}
+            >
+              {deleteLoading ? 'Deleting...' : 'Delete'}
+            </Button>
+          </DialogActions>
+        </Dialog>
+      )}
     </>
   );
 };

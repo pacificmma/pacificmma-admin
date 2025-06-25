@@ -10,7 +10,7 @@ const App = () => (
       <Routes>
         <Route path="/login" element={<LoginPage />} />
 
-        {/* Protected routes */}
+        {/* Protected routes - sadece authentication kontrolü */}
         <Route
           path="/*"
           element={
