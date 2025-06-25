@@ -11,6 +11,7 @@ interface UserData {
   email: string;
   role: UserRole;
   uid: string;
+  isActive: boolean;
 }
 
 export const useRoleControl = () => {
@@ -30,15 +31,20 @@ export const useRoleControl = () => {
         const userDoc = await getDoc(doc(db, 'staff', user.uid));
         if (userDoc.exists()) {
           const data = userDoc.data();
+          
           setUserData({
             fullName: data.fullName,
             email: data.email,
             role: data.role,
             uid: data.uid,
+            isActive: data.isActive ?? true,
           });
+        } else {
+          setUserData(null);
         }
       } catch (error) {
         console.error('Error fetching user role:', error);
+        setUserData(null);
       } finally {
         setLoading(false);
       }

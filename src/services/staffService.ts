@@ -37,17 +37,17 @@ export interface StaffRecord {
 // Staff oluşturma
 export const createStaff = async (data: StaffData) => {
   try {
-    // 1. Firebase Authentication ile kullanıcı oluştur
+    // 1. Yeni kullanıcı oluştur
     const userCredential = await createUserWithEmailAndPassword(
       auth,
       data.email,
       data.password
     );
     
-    const user = userCredential.user;
+    const newUser = userCredential.user;
 
     // 2. Kullanıcının display name'ini güncelle
-    await updateProfile(user, {
+    await updateProfile(newUser, {
       displayName: data.fullName,
     });
 
@@ -57,14 +57,20 @@ export const createStaff = async (data: StaffData) => {
       email: data.email,
       role: data.role,
       createdAt: Timestamp.now(),
-      uid: user.uid,
-      isActive: true, // Varsayılan olarak aktif
+      uid: newUser.uid,
+      isActive: true,
     };
 
-    await setDoc(doc(db, 'staff', user.uid), staffData);
+    await setDoc(doc(db, 'staff', newUser.uid), staffData);
+
+    // 4. Yeni kullanıcıyı çıkart
+    await auth.signOut();
+
+    // 5. Sayfayı yenile (admin tekrar login yapacak ama çok hızlı olacak)
+    window.location.reload();
 
     return {
-      id: user.uid,
+      id: newUser.uid,
       ...staffData,
     };
   } catch (error) {

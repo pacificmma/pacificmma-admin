@@ -10,9 +10,10 @@ import {
   useTheme,
   useMediaQuery,
 } from '@mui/material';
-import { signInWithEmailAndPassword } from 'firebase/auth';
-import { auth } from '../services/firebase';
+import { signInWithEmailAndPassword, signOut } from 'firebase/auth';
+import { auth, db } from '../services/firebase';
 import { useNavigate } from 'react-router-dom';
+import { doc, getDoc } from 'firebase/firestore';
 
 const LoginPage = () => {
   const [email, setEmail] = useState('');
@@ -29,10 +30,52 @@ const LoginPage = () => {
     setLoading(true);
 
     try {
-      await signInWithEmailAndPassword(auth, email, password);
-      navigate('/dashboard');
+      // 1. Firebase Auth ile giriş yap
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      const user = userCredential.user;
+
+      // 2. Kullanıcının Firestore'daki durumunu kontrol et
+      const userDoc = await getDoc(doc(db, 'staff', user.uid));
+      
+      if (!userDoc.exists()) {
+        // Kullanıcı Firestore'da yok
+        await signOut(auth);
+        setError('User not found in system. Please contact your administrator.');
+        setLoading(false);
+        return;
+      }
+
+      const userData = userDoc.data();
+      
+      if (userData.isActive === false) {
+        // Kullanıcı deaktif
+        await signOut(auth);
+        setError('Your account has been deactivated. Please contact your administrator.');
+        setLoading(false);
+        return;
+      }
+
+      // 3. Her şey tamam, dashboard'a yönlendir
+      navigate('/classes');
     } catch (err: any) {
-      setError(err.message || 'Login failed');
+      console.error('Login error:', err);
+      
+      // Firebase Auth hatalarını kullanıcı dostu mesajlara çevir
+      let errorMessage = 'Login failed';
+      
+      if (err.code === 'auth/user-not-found') {
+        errorMessage = 'No account found with this email address';
+      } else if (err.code === 'auth/wrong-password') {
+        errorMessage = 'Incorrect password';
+      } else if (err.code === 'auth/invalid-email') {
+        errorMessage = 'Invalid email address';
+      } else if (err.code === 'auth/too-many-requests') {
+        errorMessage = 'Too many failed attempts. Please try again later';
+      } else if (err.message) {
+        errorMessage = err.message;
+      }
+      
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }

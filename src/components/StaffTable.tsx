@@ -24,7 +24,8 @@ import {
   Alert,
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
-import { getAllStaff, deleteStaffSecure } from '../services/staffService';
+import BlockIcon from '@mui/icons-material/Block';
+import { getAllStaff, deleteStaff } from '../services/staffService';
 
 interface Staff {
   id: string;
@@ -38,7 +39,7 @@ interface StaffTableProps {
   refreshTrigger?: number;
 }
 
-const StaffTable: React.FC<StaffTableProps> = ({ refreshTrigger }) => {
+const StaffTable = ({ refreshTrigger }: StaffTableProps) => {
   const [staffList, setStaffList] = useState<Staff[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [deleteLoading, setDeleteLoading] = useState<string | null>(null);
@@ -77,8 +78,8 @@ const StaffTable: React.FC<StaffTableProps> = ({ refreshTrigger }) => {
 
     setDeleteLoading(staffToDelete.id);
     try {
-      // Cloud Functions kullanarak güvenli silme işlemi
-      await deleteStaffSecure(staffToDelete.id);
+      // Soft delete - kullanıcıyı deaktif et
+      await deleteStaff(staffToDelete.id);
       await fetchStaff();
       setDeleteDialogOpen(false);
       setStaffToDelete(null);
@@ -173,7 +174,7 @@ const StaffTable: React.FC<StaffTableProps> = ({ refreshTrigger }) => {
                     {deleteLoading === staff.id ? (
                       <CircularProgress size={20} />
                     ) : (
-                      <DeleteIcon />
+                      <BlockIcon />
                     )}
                   </IconButton>
                 </Box>
@@ -184,22 +185,22 @@ const StaffTable: React.FC<StaffTableProps> = ({ refreshTrigger }) => {
 
         {/* Delete Confirmation Dialog */}
         <Dialog open={deleteDialogOpen} onClose={handleDeleteCancel}>
-          <DialogTitle>Delete User</DialogTitle>
+          <DialogTitle>Deactivate User</DialogTitle>
           <DialogContent>
             <Typography>
-              Are you sure you want to delete <strong>{staffToDelete?.fullName}</strong>?
-              This action cannot be undone and will remove the user from both the database and authentication system.
+              Are you sure you want to deactivate <strong>{staffToDelete?.fullName}</strong>?
+              This will prevent them from logging into the system, but their data will be preserved and can be reactivated later.
             </Typography>
           </DialogContent>
           <DialogActions>
             <Button onClick={handleDeleteCancel}>Cancel</Button>
             <Button 
               onClick={handleDeleteConfirm} 
-              color="error" 
+              color="warning" 
               variant="contained"
               disabled={deleteLoading !== null}
             >
-              {deleteLoading ? 'Deleting...' : 'Delete'}
+              {deleteLoading ? 'Deactivating...' : 'Deactivate'}
             </Button>
           </DialogActions>
         </Dialog>
@@ -263,7 +264,7 @@ const StaffTable: React.FC<StaffTableProps> = ({ refreshTrigger }) => {
                     {deleteLoading === staff.id ? (
                       <CircularProgress size={20} />
                     ) : (
-                      <DeleteIcon />
+                      <BlockIcon />
                     )}
                   </IconButton>
                 </TableCell>
@@ -275,22 +276,22 @@ const StaffTable: React.FC<StaffTableProps> = ({ refreshTrigger }) => {
 
       {/* Delete Confirmation Dialog */}
       <Dialog open={deleteDialogOpen} onClose={handleDeleteCancel}>
-        <DialogTitle>Delete User</DialogTitle>
+        <DialogTitle>Deactivate User</DialogTitle>
         <DialogContent>
           <Typography>
-            Are you sure you want to delete <strong>{staffToDelete?.fullName}</strong>?
-            This action cannot be undone and will remove the user from both the database and authentication system.
+            Are you sure you want to deactivate <strong>{staffToDelete?.fullName}</strong>?
+            This will prevent them from logging into the system, but their data will be preserved and can be reactivated later.
           </Typography>
         </DialogContent>
         <DialogActions>
           <Button onClick={handleDeleteCancel}>Cancel</Button>
           <Button 
             onClick={handleDeleteConfirm} 
-            color="error" 
+            color="warning" 
             variant="contained"
             disabled={deleteLoading !== null}
           >
-            {deleteLoading ? 'Deleting...' : 'Delete'}
+            {deleteLoading ? 'Deactivating...' : 'Deactivate'}
           </Button>
         </DialogActions>
       </Dialog>
