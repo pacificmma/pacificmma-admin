@@ -15,7 +15,6 @@ import {
   Card,
   CardContent,
   Chip,
-  IconButton,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -23,9 +22,9 @@ import {
   Button,
   Alert,
 } from '@mui/material';
-import DeleteIcon from '@mui/icons-material/Delete';
-import BlockIcon from '@mui/icons-material/Block';
-import { getAllStaff, deleteStaff } from '../services/staffService';
+import { useAuth } from '../contexts/AuthContext';
+import { getAllStaff, setStaffActiveStatus } from '../services/staffService';
+import Switch from '@mui/material/Switch';
 
 interface Staff {
   id: string;
@@ -33,6 +32,7 @@ interface Staff {
   email: string;
   role: 'admin' | 'trainer' | 'staff';
   uid: string;
+  isActive: boolean;
 }
 
 interface StaffTableProps {
@@ -42,11 +42,12 @@ interface StaffTableProps {
 const StaffTable = ({ refreshTrigger }: StaffTableProps) => {
   const [staffList, setStaffList] = useState<Staff[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
-  const [deleteLoading, setDeleteLoading] = useState<string | null>(null);
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [staffToDelete, setStaffToDelete] = useState<Staff | null>(null);
+  const [toggleLoading, setToggleLoading] = useState<string | null>(null);
+  const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
+  const [staffToToggle, setStaffToToggle] = useState<Staff | null>(null);
   const [error, setError] = useState<string | null>(null);
-  
+  const { user } = useAuth();
+
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
 
@@ -68,33 +69,38 @@ const StaffTable = ({ refreshTrigger }: StaffTableProps) => {
     fetchStaff();
   }, [refreshTrigger]);
 
-  const handleDeleteClick = (staff: Staff) => {
-    setStaffToDelete(staff);
-    setDeleteDialogOpen(true);
+  const handleToggleClick = (staff: Staff) => {
+    // Kendi hesabını deaktif etmesini engelle
+    if (staff.id === user?.uid) {
+      setError('You cannot deactivate your own account');
+      return;
+    }
+    
+    setStaffToToggle(staff);
+    setConfirmDialogOpen(true);
   };
 
-  const handleDeleteConfirm = async () => {
-    if (!staffToDelete) return;
+  const handleToggleConfirm = async () => {
+    if (!staffToToggle) return;
 
-    setDeleteLoading(staffToDelete.id);
+    setToggleLoading(staffToToggle.id);
     try {
-      // Soft delete - kullanıcıyı deaktif et
-      await deleteStaff(staffToDelete.id);
+      await setStaffActiveStatus(staffToToggle.id, !staffToToggle.isActive, user?.uid || '');
       await fetchStaff();
-      setDeleteDialogOpen(false);
-      setStaffToDelete(null);
+      setConfirmDialogOpen(false);
+      setStaffToToggle(null);
       setError(null);
     } catch (err: any) {
-      console.error('Error deleting staff:', err);
-      setError('An error occurred while deleting user: ' + err.message);
+      console.error('Error changing staff status:', err);
+      setError(err.message || 'An error occurred while changing user status');
     } finally {
-      setDeleteLoading(null);
+      setToggleLoading(null);
     }
   };
 
-  const handleDeleteCancel = () => {
-    setDeleteDialogOpen(false);
-    setStaffToDelete(null);
+  const handleToggleCancel = () => {
+    setConfirmDialogOpen(false);
+    setStaffToToggle(null);
   };
 
   const getRoleColor = (role: string) => {
@@ -110,11 +116,22 @@ const StaffTable = ({ refreshTrigger }: StaffTableProps) => {
     }
   };
 
+  const getStatusChip = (staff: Staff) => {
+    return (
+      <Chip
+        label={staff.isActive ? 'Active' : 'Inactive'}
+        color={staff.isActive ? 'success' : 'default'}
+        size="small"
+        variant="outlined"
+      />
+    );
+  };
+
   if (loading) {
     return (
-      <Box sx={{ 
-        display: 'flex', 
-        justifyContent: 'center', 
+      <Box sx={{
+        display: 'flex',
+        justifyContent: 'center',
         alignItems: 'center',
         minHeight: 200,
         mt: 2
@@ -127,7 +144,7 @@ const StaffTable = ({ refreshTrigger }: StaffTableProps) => {
   if (error) {
     return (
       <Paper sx={{ p: 3, mt: 2 }}>
-        <Alert severity="error">{error}</Alert>
+        <Alert severity="error" onClose={() => setError(null)}>{error}</Alert>
       </Paper>
     );
   }
@@ -148,7 +165,7 @@ const StaffTable = ({ refreshTrigger }: StaffTableProps) => {
       <>
         <Box sx={{ mt: 2 }}>
           {staffList.map((staff) => (
-            <Card key={staff.id} sx={{ mb: 2, elevation: 1 }}>
+            <Card key={staff.id} sx={{ mb: 2, elevation: 1, opacity: staff.isActive ? 1 : 0.6 }}>
               <CardContent sx={{ pb: '16px !important' }}>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
                   <Box sx={{ flex: 1 }}>
@@ -158,49 +175,59 @@ const StaffTable = ({ refreshTrigger }: StaffTableProps) => {
                     <Typography variant="body2" color="text.secondary" sx={{ wordBreak: 'break-word', mb: 1 }}>
                       {staff.email}
                     </Typography>
-                    <Chip
-                      label={staff.role.charAt(0).toUpperCase() + staff.role.slice(1)}
-                      color={getRoleColor(staff.role) as any}
-                      size="small"
-                    />
+                    <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                      <Chip
+                        label={staff.role.charAt(0).toUpperCase() + staff.role.slice(1)}
+                        color={getRoleColor(staff.role) as any}
+                        size="small"
+                      />
+                      {getStatusChip(staff)}
+                    </Box>
                   </Box>
-                  <IconButton
-                    onClick={() => handleDeleteClick(staff)}
-                    disabled={deleteLoading === staff.id}
-                    color="error"
-                    size="small"
-                    sx={{ ml: 1 }}
-                  >
-                    {deleteLoading === staff.id ? (
-                      <CircularProgress size={20} />
-                    ) : (
-                      <BlockIcon />
-                    )}
-                  </IconButton>
+                  <Box sx={{ ml: 1, display: 'flex', alignItems: 'center' }}>
+                    <Switch
+                      checked={staff.isActive}
+                      onChange={() => handleToggleClick(staff)}
+                      disabled={toggleLoading === staff.id || staff.id === user?.uid}
+                      color="success"
+                      inputProps={{
+                        'aria-label': staff.isActive ? 'Deactivate user' : 'Activate user',
+                      }}
+                    />
+                    {toggleLoading === staff.id && <CircularProgress size={20} sx={{ ml: 1 }} />}
+                  </Box>
                 </Box>
               </CardContent>
             </Card>
           ))}
         </Box>
 
-        {/* Delete Confirmation Dialog */}
-        <Dialog open={deleteDialogOpen} onClose={handleDeleteCancel}>
-          <DialogTitle>Deactivate User</DialogTitle>
+        {/* Status Toggle Confirmation Dialog */}
+        <Dialog open={confirmDialogOpen} onClose={handleToggleCancel}>
+          <DialogTitle>
+            {staffToToggle?.isActive ? 'Deactivate User' : 'Activate User'}
+          </DialogTitle>
           <DialogContent>
             <Typography>
-              Are you sure you want to deactivate <strong>{staffToDelete?.fullName}</strong>?
-              This will prevent them from logging into the system, but their data will be preserved and can be reactivated later.
+              Are you sure you want to {staffToToggle?.isActive ? 'deactivate' : 'activate'} <strong>{staffToToggle?.fullName}</strong>?
+              {staffToToggle?.isActive 
+                ? ' This will prevent them from logging into the system, but their data will be preserved and can be reactivated later.'
+                : ' This will allow them to log into the system again.'
+              }
             </Typography>
           </DialogContent>
           <DialogActions>
-            <Button onClick={handleDeleteCancel}>Cancel</Button>
-            <Button 
-              onClick={handleDeleteConfirm} 
-              color="warning" 
+            <Button onClick={handleToggleCancel}>Cancel</Button>
+            <Button
+              onClick={handleToggleConfirm}
+              color={staffToToggle?.isActive ? 'warning' : 'success'}
               variant="contained"
-              disabled={deleteLoading !== null}
+              disabled={toggleLoading !== null}
             >
-              {deleteLoading ? 'Deactivating...' : 'Deactivate'}
+              {toggleLoading ? 
+                (staffToToggle?.isActive ? 'Deactivating...' : 'Activating...') : 
+                (staffToToggle?.isActive ? 'Deactivate' : 'Activate')
+              }
             </Button>
           </DialogActions>
         </Dialog>
@@ -224,20 +251,24 @@ const StaffTable = ({ refreshTrigger }: StaffTableProps) => {
               <TableCell sx={{ fontWeight: 600, fontSize: '0.95rem' }}>
                 Role
               </TableCell>
-              <TableCell sx={{ fontWeight: 600, fontSize: '0.95rem', width: 80 }}>
-                Actions
+              <TableCell sx={{ fontWeight: 600, fontSize: '0.95rem' }}>
+                Status
+              </TableCell>
+              <TableCell sx={{ fontWeight: 600, fontSize: '0.95rem', width: 120 }}>
+                Active
               </TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
             {staffList.map((staff) => (
-              <TableRow 
+              <TableRow
                 key={staff.id}
-                sx={{ 
-                  '&:hover': { 
-                    backgroundColor: theme.palette.action.hover 
+                sx={{
+                  '&:hover': {
+                    backgroundColor: theme.palette.action.hover
                   },
-                  '&:last-child td, &:last-child th': { border: 0 }
+                  '&:last-child td, &:last-child th': { border: 0 },
+                  opacity: staff.isActive ? 1 : 0.6
                 }}
               >
                 <TableCell sx={{ fontSize: '0.9rem' }}>
@@ -255,18 +286,21 @@ const StaffTable = ({ refreshTrigger }: StaffTableProps) => {
                   />
                 </TableCell>
                 <TableCell>
-                  <IconButton
-                    onClick={() => handleDeleteClick(staff)}
-                    disabled={deleteLoading === staff.id}
-                    color="error"
-                    size="small"
-                  >
-                    {deleteLoading === staff.id ? (
-                      <CircularProgress size={20} />
-                    ) : (
-                      <BlockIcon />
-                    )}
-                  </IconButton>
+                  {getStatusChip(staff)}
+                </TableCell>
+                <TableCell>
+                  <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                    <Switch
+                      checked={staff.isActive}
+                      onChange={() => handleToggleClick(staff)}
+                      disabled={toggleLoading === staff.id || staff.id === user?.uid}
+                      color="success"
+                      inputProps={{
+                        'aria-label': staff.isActive ? 'Deactivate user' : 'Activate user',
+                      }}
+                    />
+                    {toggleLoading === staff.id && <CircularProgress size={20} sx={{ ml: 1 }} />}
+                  </Box>
                 </TableCell>
               </TableRow>
             ))}
@@ -274,24 +308,32 @@ const StaffTable = ({ refreshTrigger }: StaffTableProps) => {
         </Table>
       </TableContainer>
 
-      {/* Delete Confirmation Dialog */}
-      <Dialog open={deleteDialogOpen} onClose={handleDeleteCancel}>
-        <DialogTitle>Deactivate User</DialogTitle>
+      {/* Status Toggle Confirmation Dialog */}
+      <Dialog open={confirmDialogOpen} onClose={handleToggleCancel}>
+        <DialogTitle>
+          {staffToToggle?.isActive ? 'Deactivate User' : 'Activate User'}
+        </DialogTitle>
         <DialogContent>
           <Typography>
-            Are you sure you want to deactivate <strong>{staffToDelete?.fullName}</strong>?
-            This will prevent them from logging into the system, but their data will be preserved and can be reactivated later.
+            Are you sure you want to {staffToToggle?.isActive ? 'deactivate' : 'activate'} <strong>{staffToToggle?.fullName}</strong>?
+            {staffToToggle?.isActive 
+              ? ' This will prevent them from logging into the system, but their data will be preserved and can be reactivated later.'
+              : ' This will allow them to log into the system again.'
+            }
           </Typography>
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleDeleteCancel}>Cancel</Button>
-          <Button 
-            onClick={handleDeleteConfirm} 
-            color="warning" 
+          <Button onClick={handleToggleCancel}>Cancel</Button>
+          <Button
+            onClick={handleToggleConfirm}
+            color={staffToToggle?.isActive ? 'warning' : 'success'}
             variant="contained"
-            disabled={deleteLoading !== null}
+            disabled={toggleLoading !== null}
           >
-            {deleteLoading ? 'Deactivating...' : 'Deactivate'}
+            {toggleLoading ? 
+              (staffToToggle?.isActive ? 'Deactivating...' : 'Activating...') : 
+              (staffToToggle?.isActive ? 'Deactivate' : 'Activate')
+            }
           </Button>
         </DialogActions>
       </Dialog>

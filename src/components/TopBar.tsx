@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   AppBar,
   Toolbar,
@@ -7,9 +7,11 @@ import {
   Box,
   useTheme,
   useMediaQuery,
+  Avatar,
 } from '@mui/material';
 import LogoutIcon from '@mui/icons-material/Logout';
 import MenuIcon from '@mui/icons-material/Menu';
+import PersonIcon from '@mui/icons-material/Person';
 import { auth } from '../services/firebase';
 import { signOut } from 'firebase/auth';
 import { useNavigate } from 'react-router-dom';
@@ -22,6 +24,28 @@ const Topbar: React.FC<TopbarProps> = ({ handleDrawerToggle }) => {
   const theme = useTheme();
   const navigate = useNavigate();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
+  const [userDisplayName, setUserDisplayName] = useState<string>('');
+
+  useEffect(() => {
+    const unsubscribe = auth.onAuthStateChanged((user) => {
+      if (user) {
+        // Display name varsa onu kullan, yoksa email'den isim çıkar
+        if (user.displayName) {
+          setUserDisplayName(user.displayName);
+        } else if (user.email) {
+          // Email'den @ işaretinden önceki kısmı al
+          const emailName = user.email.split('@')[0];
+          setUserDisplayName(emailName);
+        } else {
+          setUserDisplayName('User');
+        }
+      } else {
+        setUserDisplayName('');
+      }
+    });
+
+    return () => unsubscribe();
+  }, []);
 
   const handleLogout = async () => {
     try {
@@ -30,6 +54,16 @@ const Topbar: React.FC<TopbarProps> = ({ handleDrawerToggle }) => {
     } catch (error) {
       console.error('Logout error:', error);
     }
+  };
+
+  // İsmin ilk harfini avatar için al
+  const getInitials = (name: string) => {
+    return name
+      .split(' ')
+      .map(word => word.charAt(0))
+      .join('')
+      .toUpperCase()
+      .slice(0, 2);
   };
 
   return (
@@ -74,7 +108,56 @@ const Topbar: React.FC<TopbarProps> = ({ handleDrawerToggle }) => {
           </Typography>
         </Box>
         
-        <Box>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          {/* User Info */}
+          <Box sx={{ 
+            alignItems: 'center', 
+            gap: 1,
+            display: { xs: 'none', sm: 'flex' } 
+          }}>
+            <Avatar
+              sx={{
+                width: 32,
+                height: 32,
+                backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                fontSize: '0.875rem',
+              }}
+            >
+              {userDisplayName ? getInitials(userDisplayName) : <PersonIcon />}
+            </Avatar>
+            <Typography 
+              variant="body2" 
+              sx={{ 
+                color: 'white',
+                fontWeight: 500,
+                maxWidth: 150,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {userDisplayName}
+            </Typography>
+          </Box>
+
+          {/* Mobile'da sadece avatar göster */}
+          <Box sx={{ 
+            display: { xs: 'flex', sm: 'none' },
+            alignItems: 'center',
+          }}>
+            <Avatar
+              sx={{
+                width: 28,
+                height: 28,
+                backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                fontSize: '0.75rem',
+              }}
+            >
+              {userDisplayName ? getInitials(userDisplayName) : <PersonIcon />}
+            </Avatar>
+          </Box>
+
+          {/* Logout Button */}
           <IconButton 
             color="inherit" 
             onClick={handleLogout}
