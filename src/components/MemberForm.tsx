@@ -1,928 +1,942 @@
-// src/components/MemberTable.tsx - Enhanced with confirmation dialogs and status updates
+// src/components/MemberForm.tsx - Fixed implementation with proper error handling and security
 
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableRow,
-  Paper,
-  TableContainer,
-  Typography,
-  CircularProgress,
-  Box,
-  useTheme,
-  useMediaQuery,
-  Card,
-  CardContent,
-  Chip,
-  IconButton,
   Dialog,
   DialogTitle,
   DialogContent,
   DialogActions,
-  Button,
-  Alert,
-  Avatar,
   TextField,
-  InputAdornment,
+  Button,
+  Box,
+  useMediaQuery,
+  useTheme,
+  IconButton,
+  Alert,
+  Typography,
   FormControl,
   InputLabel,
   Select,
   MenuItem,
-  Tabs,
-  Tab,
-  Tooltip,
-  Menu,
-  MenuItem as MenuItemComponent,
+  FormControlLabel,
+  Checkbox,
+  Chip,
+  Autocomplete,
+  Paper,
   Divider,
+  CircularProgress,
+  Stepper,
+  Step,
+  StepLabel,
+  LinearProgress,
 } from '@mui/material';
-import DeleteIcon from '@mui/icons-material/Delete';
-import EditIcon from '@mui/icons-material/Edit';
+import CloseIcon from '@mui/icons-material/Close';
 import PersonIcon from '@mui/icons-material/Person';
-import PhoneIcon from '@mui/icons-material/Phone';
-import EmailIcon from '@mui/icons-material/Email';
-import LocationOnIcon from '@mui/icons-material/LocationOn';
+import ContactPhoneIcon from '@mui/icons-material/ContactPhone';
 import CreditCardIcon from '@mui/icons-material/CreditCard';
-import MoreVertIcon from '@mui/icons-material/MoreVert';
-import SearchIcon from '@mui/icons-material/Search';
-import FilterListIcon from '@mui/icons-material/FilterList';
-import CheckCircleIcon from '@mui/icons-material/CheckCircle';
-import PauseCircleIcon from '@mui/icons-material/PauseCircle';
-import ErrorIcon from '@mui/icons-material/Error';
-import PersonOffIcon from '@mui/icons-material/PersonOff';
-import WarningIcon from '@mui/icons-material/Warning';
-import { format } from 'date-fns';
+import SecurityIcon from '@mui/icons-material/Security';
+import { DatePicker } from '@mui/x-date-pickers';
+import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
+import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { 
+  MemberFormData, 
   MemberRecord, 
-  MemberStatus,
-  MembershipType 
+  MembershipType, 
+  PaymentMethod,
+  EmergencyContact,
+  Address 
 } from '../types/members';
-import { 
-  getAllMembers, 
-  deleteMember, 
-  updateMembershipStatus 
-} from '../services/memberService';
+import { createMember, updateMember } from '../services/memberService';
+import { useAuth } from '../contexts/AuthContext';
 import { useRoleControl } from '../hooks/useRoleControl';
 
-interface MemberTableProps {
-  refreshTrigger?: number;
-  onEdit: (memberData: MemberRecord) => void;
-  onDataLoaded?: (data: { memberList: MemberRecord[] }) => void;
+interface MemberFormProps {
+  open: boolean;
+  onClose: () => void;
+  editData?: MemberRecord;
 }
 
-const MemberTable: React.FC<MemberTableProps> = ({ 
-  refreshTrigger, 
-  onEdit, 
-  onDataLoaded 
-}) => {
-  const [memberList, setMemberList] = useState<MemberRecord[]>([]);
-  const [filteredMembers, setFilteredMembers] = useState<MemberRecord[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [deleteLoading, setDeleteLoading] = useState<string | null>(null);
-  const [statusLoading, setStatusLoading] = useState<string | null>(null);
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [statusDialogOpen, setStatusDialogOpen] = useState(false);
-  const [memberToDelete, setMemberToDelete] = useState<MemberRecord | null>(null);
-  const [memberToUpdate, setMemberToUpdate] = useState<MemberRecord | null>(null);
-  const [newStatus, setNewStatus] = useState<MemberStatus>('No Membership');
+const steps = ['Personal Info', 'Contact & Emergency', 'Membership Details', 'Final Review'];
+
+const membershipTypes: MembershipType[] = ['Recurring', 'Prepaid'];
+const paymentMethods: PaymentMethod[] = ['ACH', 'Credit Card', 'Cash', 'Check'];
+
+const commonTags = [
+  'New Member', 'Returning Member', 'Student', 'Senior', 'Military', 
+  'First Responder', 'BJJ', 'Muay Thai', 'Boxing', 'MMA', 'Wrestling'
+];
+
+const MemberForm: React.FC<MemberFormProps> = ({ open, onClose, editData }) => {
+  const [activeStep, setActiveStep] = useState(0);
+  const [formData, setFormData] = useState<MemberFormData>({
+    firstName: '',
+    lastName: '',
+    email: '',
+    phone: '',
+    emergencyContact: {
+      name: '',
+      relationship: '',
+      phone: '',
+      email: '',
+    },
+    dateOfBirth: undefined,
+    address: {
+      street: '',
+      city: '',
+      state: '',
+      zipCode: '',
+      country: 'USA',
+    },
+    membershipType: 'Recurring',
+    monthlyAmount: 0,
+    totalAmount: 0,
+    totalCredits: 0,
+    paymentMethod: 'ACH',
+    autoRenew: true,
+    waiverSigned: false,
+    medicalNotes: '',
+    notes: '',
+    tags: [],
+  });
+
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  
-  // Filters and search
-  const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | MemberStatus>('all');
-  const [membershipTypeFilter, setMembershipTypeFilter] = useState<'all' | MembershipType>('all');
-  const [tabValue, setTabValue] = useState(0);
-  
-  // Menu state
-  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
-  const [selectedMember, setSelectedMember] = useState<MemberRecord | null>(null);
+  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
+  const [memberCreated, setMemberCreated] = useState<{ memberRecord: MemberRecord; password: string } | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
 
   const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
-  const { isAdmin, userData } = useRoleControl();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+  const { user } = useAuth();
+  const { userData } = useRoleControl();
 
-  const fetchMembers = async () => {
+  useEffect(() => {
+    if (open) {
+      if (editData) {
+        // Populate form with existing member data
+        setFormData({
+          firstName: editData.firstName || '',
+          lastName: editData.lastName || '',
+          email: editData.email || '',
+          phone: editData.phone || '',
+          emergencyContact: {
+            name: editData.emergencyContact?.name || '',
+            relationship: editData.emergencyContact?.relationship || '',
+            phone: editData.emergencyContact?.phone || '',
+            email: editData.emergencyContact?.email || '',
+          },
+          dateOfBirth: editData.dateOfBirth ? editData.dateOfBirth.toDate() : undefined,
+          address: {
+            street: editData.address?.street || '',
+            city: editData.address?.city || '',
+            state: editData.address?.state || '',
+            zipCode: editData.address?.zipCode || '',
+            country: editData.address?.country || 'USA',
+          },
+          membershipType: editData.membership?.type || 'Recurring',
+          monthlyAmount: editData.membership?.monthlyAmount || 0,
+          totalAmount: editData.membership?.totalAmount || 0,
+          totalCredits: editData.membership?.totalCredits || 0,
+          paymentMethod: editData.membership?.paymentMethod || 'ACH',
+          autoRenew: editData.membership?.autoRenew || false,
+          waiverSigned: editData.waiverSigned || false,
+          medicalNotes: editData.medicalNotes || '',
+          notes: editData.notes || '',
+          tags: editData.tags || [],
+        });
+      } else {
+        // Reset form for new member
+        setFormData({
+          firstName: '',
+          lastName: '',
+          email: '',
+          phone: '',
+          emergencyContact: {
+            name: '',
+            relationship: '',
+            phone: '',
+            email: '',
+          },
+          dateOfBirth: undefined,
+          address: {
+            street: '',
+            city: '',
+            state: '',
+            zipCode: '',
+            country: 'USA',
+          },
+          membershipType: 'Recurring',
+          monthlyAmount: 0,
+          totalAmount: 0,
+          totalCredits: 0,
+          paymentMethod: 'ACH',
+          autoRenew: true,
+          waiverSigned: false,
+          medicalNotes: '',
+          notes: '',
+          tags: [],
+        });
+      }
+      setActiveStep(0);
+      setError(null);
+      setValidationErrors({});
+      setMemberCreated(null);
+      setShowPassword(false);
+    }
+  }, [open, editData]);
+
+  const handleInputChange = (field: keyof MemberFormData, value: any) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
+    
+    // Clear validation error for this field
+    if (validationErrors[field]) {
+      setValidationErrors(prev => {
+        const newErrors = { ...prev };
+        delete newErrors[field];
+        return newErrors;
+      });
+    }
+    
+    if (error) setError(null);
+  };
+
+  const handleNestedInputChange = (
+    parentField: 'emergencyContact' | 'address',
+    field: string,
+    value: any
+  ) => {
+    setFormData(prev => ({
+      ...prev,
+      [parentField]: {
+        ...prev[parentField],
+        [field]: value
+      }
+    }));
+
+    // Clear validation error
+    const errorKey = `${parentField}.${field}`;
+    if (validationErrors[errorKey]) {
+      setValidationErrors(prev => {
+        const newErrors = { ...prev };
+        delete newErrors[errorKey];
+        return newErrors;
+      });
+    }
+
+    if (error) setError(null);
+  };
+
+  const validateStep = (step: number): { isValid: boolean; errors: Record<string, string> } => {
+    const errors: Record<string, string> = {};
+
+    switch (step) {
+      case 0: // Personal Info
+        if (!formData.firstName.trim()) errors.firstName = 'First name is required';
+        if (!formData.lastName.trim()) errors.lastName = 'Last name is required';
+        if (!formData.email.trim()) {
+          errors.email = 'Email is required';
+        } else if (!/\S+@\S+\.\S+/.test(formData.email)) {
+          errors.email = 'Please enter a valid email address';
+        }
+        if (!formData.phone.trim()) {
+          errors.phone = 'Phone number is required';
+        } else if (!/^\d{10,}$/.test(formData.phone.replace(/\D/g, ''))) {
+          errors.phone = 'Please enter a valid phone number';
+        }
+        break;
+
+      case 1: // Contact & Emergency
+        if (!formData.emergencyContact.name.trim()) {
+          errors['emergencyContact.name'] = 'Emergency contact name is required';
+        }
+        if (!formData.emergencyContact.relationship.trim()) {
+          errors['emergencyContact.relationship'] = 'Relationship is required';
+        }
+        if (!formData.emergencyContact.phone.trim()) {
+          errors['emergencyContact.phone'] = 'Emergency contact phone is required';
+        } else if (!/^\d{10,}$/.test(formData.emergencyContact.phone.replace(/\D/g, ''))) {
+          errors['emergencyContact.phone'] = 'Please enter a valid phone number';
+        }
+        // Emergency contact email is optional, but validate if provided
+        if (formData.emergencyContact.email && 
+            formData.emergencyContact.email.trim() && 
+            !/\S+@\S+\.\S+/.test(formData.emergencyContact.email)) {
+          errors['emergencyContact.email'] = 'Please enter a valid email address';
+        }
+        break;
+
+      case 2: // Membership Details
+        if (formData.membershipType === 'Recurring') {
+          if (!formData.monthlyAmount || formData.monthlyAmount <= 0) {
+            errors.monthlyAmount = 'Monthly amount is required for recurring memberships';
+          }
+        } else if (formData.membershipType === 'Prepaid') {
+          if (!formData.totalAmount || formData.totalAmount <= 0) {
+            errors.totalAmount = 'Total amount is required for prepaid memberships';
+          }
+          if (!formData.totalCredits || formData.totalCredits <= 0) {
+            errors.totalCredits = 'Total credits is required for prepaid memberships';
+          }
+        }
+        break;
+
+      case 3: // Final Review - check waiver
+        if (!formData.waiverSigned) {
+          errors.waiverSigned = 'Waiver must be signed to create member account';
+        }
+        break;
+    }
+
+    return {
+      isValid: Object.keys(errors).length === 0,
+      errors
+    };
+  };
+
+  const handleNext = () => {
+    const validation = validateStep(activeStep);
+    
+    if (!validation.isValid) {
+      setValidationErrors(validation.errors);
+      setError('Please correct the errors before proceeding.');
+      return;
+    }
+
+    setValidationErrors({});
+    setError(null);
+    setActiveStep(prev => prev + 1);
+  };
+
+  const handleBack = () => {
+    setActiveStep(prev => prev - 1);
+    setError(null);
+    setValidationErrors({});
+  };
+
+  const handleSubmit = async () => {
     try {
+      // Final validation
+      const validation = validateStep(3);
+      if (!validation.isValid) {
+        setValidationErrors(validation.errors);
+        setError('Please correct all errors before submitting.');
+        return;
+      }
+
+      if (!user || !userData) {
+        setError('You must be logged in to create members.');
+        return;
+      }
+
       setLoading(true);
       setError(null);
-      
-      console.log('Fetching members...');
-      const members = await getAllMembers();
-      
-      setMemberList(members);
-      
-      // Pass data to parent component for stats calculation
-      if (onDataLoaded) {
-        onDataLoaded({ memberList: members });
+
+      if (editData) {
+        // Update existing member
+        await updateMember(editData.id, formData, userData.uid);
+        handleClose();
+      } else {
+        // Create new member with Firebase Auth
+        console.log('Creating new member...');
+        const result = await createMember(formData, userData.uid);
+        
+        console.log('Member created successfully:', result.memberRecord.id);
+        setMemberCreated(result);
+        setShowPassword(true);
       }
-      
-      console.log(`Loaded ${members.length} members`);
     } catch (err: any) {
-      console.error('Error loading members:', err);
-      setError(err.message || 'An error occurred while loading members');
+      console.error('Error saving member:', err);
+      setError(err.message || 'An error occurred while saving the member');
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => {
-    fetchMembers();
-  }, [refreshTrigger]);
-
-  // Clear success message after 3 seconds
-  useEffect(() => {
-    if (successMessage) {
-      const timer = setTimeout(() => setSuccessMessage(null), 3000);
-      return () => clearTimeout(timer);
-    }
-  }, [successMessage]);
-
-  // Filter members based on search term and filters
-  useEffect(() => {
-    let filtered = memberList;
-
-    // Search filter
-    if (searchTerm) {
-      const term = searchTerm.toLowerCase();
-      filtered = filtered.filter(member =>
-        (member?.firstName || '').toLowerCase().includes(term) ||
-        (member?.lastName || '').toLowerCase().includes(term) ||
-        (member?.email || '').toLowerCase().includes(term) ||
-        (member?.phone || '').includes(term)
-      );
-    }
-
-    // Status filter
-    if (statusFilter !== 'all') {
-      filtered = filtered.filter(member => member?.membership?.status === statusFilter);
-    }
-
-    // Membership type filter
-    if (membershipTypeFilter !== 'all') {
-      filtered = filtered.filter(member => member?.membership?.type === membershipTypeFilter);
-    }
-
-    // Tab filter
-    switch (tabValue) {
-      case 1: // Active
-        filtered = filtered.filter(member => member?.membership?.status === 'Active');
-        break;
-      case 2: // Inactive
-        filtered = filtered.filter(member => {
-          const status = member?.membership?.status;
-          return status === 'Paused' || status === 'Overdue' || status === 'No Membership' || !status;
-        });
-        break;
-      // case 0 is 'All' - no additional filtering
-    }
-
-    setFilteredMembers(filtered);
-  }, [memberList, searchTerm, statusFilter, membershipTypeFilter, tabValue]);
-
-  const handleDeleteClick = (member: MemberRecord) => {
-    setMemberToDelete(member);
-    setDeleteDialogOpen(true);
-    handleMenuClose();
-  };
-
-  const handleDeleteConfirm = async () => {
-    if (!memberToDelete || !userData) return;
-
-    setDeleteLoading(memberToDelete.id);
-    try {
-      await deleteMember(memberToDelete.id, userData.uid);
-      await fetchMembers();
-      setDeleteDialogOpen(false);
-      setMemberToDelete(null);
-      setSuccessMessage(`Member ${memberToDelete.firstName} ${memberToDelete.lastName} has been deactivated`);
-    } catch (err: any) {
-      console.error('Error deleting member:', err);
-      setError('An error occurred while deleting: ' + err.message);
-    } finally {
-      setDeleteLoading(null);
-    }
-  };
-
-  const handleDeleteCancel = () => {
-    setDeleteDialogOpen(false);
-    setMemberToDelete(null);
-  };
-
-  const handleStatusClick = (member: MemberRecord, status: MemberStatus) => {
-    setMemberToUpdate(member);
-    setNewStatus(status);
-    setStatusDialogOpen(true);
-    handleMenuClose();
-  };
-
-  const handleStatusConfirm = async () => {
-    if (!memberToUpdate || !userData) return;
-
-    setStatusLoading(memberToUpdate.id);
-    try {
-      await updateMembershipStatus(memberToUpdate.id, newStatus, userData.uid);
-      await fetchMembers();
-      setStatusDialogOpen(false);
-      
-      // Set success message
-      const statusAction = getStatusActionName(newStatus);
-      setSuccessMessage(`${memberToUpdate.firstName} ${memberToUpdate.lastName} has been marked as ${statusAction}`);
-      
-      setMemberToUpdate(null);
-    } catch (err: any) {
-      console.error('Error updating status:', err);
-      setError('An error occurred while updating status: ' + err.message);
-    } finally {
-      setStatusLoading(null);
-    }
-  };
-
-  const handleStatusCancel = () => {
-    setStatusDialogOpen(false);
-    setMemberToUpdate(null);
-  };
-
-  const handleMenuClick = (event: React.MouseEvent<HTMLElement>, member: MemberRecord) => {
-    setAnchorEl(event.currentTarget);
-    setSelectedMember(member);
-  };
-
-  const handleMenuClose = () => {
-    setAnchorEl(null);
-    setSelectedMember(null);
-  };
-
-  const getStatusColor = (status: MemberStatus) => {
-    switch (status) {
-      case 'Active':
-        return 'success';
-      case 'Paused':
-        return 'warning';
-      case 'Overdue':
-        return 'error';
-      case 'No Membership':
-      default:
-        return 'default';
-    }
-  };
-
-  const getStatusIcon = (status: MemberStatus) => {
-    switch (status) {
-      case 'Active':
-        return <CheckCircleIcon />;
-      case 'Paused':
-        return <PauseCircleIcon />;
-      case 'Overdue':
-        return <ErrorIcon />;
-      case 'No Membership':
-      default:
-        return <PersonOffIcon />;
-    }
-  };
-
-  const getStatusActionName = (status: MemberStatus): string => {
-    switch (status) {
-      case 'Active':
-        return 'Active';
-      case 'Paused':
-        return 'Paused';
-      case 'Overdue':
-        return 'Overdue';
-      case 'No Membership':
-        return 'No Membership';
-      default:
-        return status;
-    }
-  };
-
-  const getStatusDescription = (status: MemberStatus): string => {
-    switch (status) {
-      case 'Active':
-        return 'Member will have access to all services and can book classes.';
-      case 'Paused':
-        return 'Member account will be temporarily suspended but can be reactivated.';
-      case 'Overdue':
-        return 'Member will be marked as overdue for payments but account remains accessible.';
-      case 'No Membership':
-        return 'Member will have no active membership or access to services.';
-      default:
-        return 'This will change the member\'s current status.';
-    }
-  };
-
-  const formatDate = (date: any) => {
-    if (!date) return 'N/A';
-    try {
-      const dateObj = date.toDate ? date.toDate() : new Date(date);
-      return format(dateObj, 'MMM dd, yyyy');
-    } catch (error) {
-      return 'Invalid Date';
-    }
-  };
-
-  const getMemberInitials = (member: MemberRecord) => {
-    const firstName = member?.firstName || '';
-    const lastName = member?.lastName || '';
+  const handleClose = () => {
+    if (loading) return; // Prevent closing during operation
     
-    const firstInitial = firstName.length > 0 ? firstName.charAt(0).toUpperCase() : '';
-    const lastInitial = lastName.length > 0 ? lastName.charAt(0).toUpperCase() : '';
-    
-    return `${firstInitial}${lastInitial}` || '??';
+    setActiveStep(0);
+    setError(null);
+    setValidationErrors({});
+    setMemberCreated(null);
+    setShowPassword(false);
+    onClose();
   };
 
-  // Stats for tabs
-  const memberStats = useMemo(() => {
-    const stats = {
-      all: memberList.length,
-      active: memberList.filter(m => m?.membership?.status === 'Active').length,
-      inactive: memberList.filter(m => {
-        const status = m?.membership?.status;
-        return status === 'Paused' || status === 'Overdue' || status === 'No Membership' || !status;
-      }).length,
-    };
-    return stats;
-  }, [memberList]);
+  const renderStepContent = (step: number) => {
+    switch (step) {
+      case 0: // Personal Info
+        return (
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+              <PersonIcon color="primary" />
+              <Typography variant="h6">Personal Information</Typography>
+            </Box>
 
-  if (loading) {
-    return (
-      <Box sx={{ 
-        display: 'flex', 
-        justifyContent: 'center', 
-        alignItems: 'center',
-        minHeight: 200,
-        mt: 2
-      }}>
-        <CircularProgress />
-      </Box>
-    );
-  }
+            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)' }, gap: 2 }}>
+              <TextField
+                label="First Name *"
+                value={formData.firstName}
+                onChange={(e) => handleInputChange('firstName', e.target.value)}
+                size="small"
+                error={!!validationErrors.firstName}
+                helperText={validationErrors.firstName}
+                disabled={loading}
+              />
+              <TextField
+                label="Last Name *"
+                value={formData.lastName}
+                onChange={(e) => handleInputChange('lastName', e.target.value)}
+                size="small"
+                error={!!validationErrors.lastName}
+                helperText={validationErrors.lastName}
+                disabled={loading}
+              />
+            </Box>
 
-  if (error) {
-    return (
-      <Paper sx={{ p: 3, mt: 2 }}>
-        <Alert severity="error" onClose={() => setError(null)}>{error}</Alert>
-      </Paper>
-    );
-  }
+            <TextField
+              label="Email Address *"
+              type="email"
+              value={formData.email}
+              onChange={(e) => handleInputChange('email', e.target.value)}
+              size="small"
+              error={!!validationErrors.email}
+              helperText={validationErrors.email || 'This will be used for customer portal access'}
+              disabled={loading || !!editData} // Can't change email for existing members
+            />
 
-  if (memberList.length === 0) {
-    return (
-      <Paper sx={{ p: 3, mt: 2, textAlign: 'center' }}>
-        <Typography variant="body1" color="text.secondary">
-          No members found. Create your first member to get started.
-        </Typography>
-      </Paper>
-    );
-  }
+            <TextField
+              label="Phone Number *"
+              value={formData.phone}
+              onChange={(e) => handleInputChange('phone', e.target.value)}
+              size="small"
+              error={!!validationErrors.phone}
+              helperText={validationErrors.phone}
+              disabled={loading}
+              placeholder="(555) 123-4567"
+            />
 
-  // Mobile card view
-  if (isMobile) {
-    return (
-      <>
-        {/* Success Message */}
-        {successMessage && (
-          <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccessMessage(null)}>
-            {successMessage}
-          </Alert>
-        )}
-
-        {/* Search and Filters */}
-        <Paper sx={{ p: 2, mb: 2 }}>
-          <TextField
-            placeholder="Search members..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            size="small"
-            fullWidth
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <SearchIcon />
-                </InputAdornment>
-              ),
-            }}
-            sx={{ mb: 2 }}
-          />
-          
-          <Box sx={{ display: 'flex', gap: 1 }}>
-            <FormControl size="small" sx={{ minWidth: 120 }}>
-              <InputLabel>Status</InputLabel>
-              <Select
-                value={statusFilter}
-                label="Status"
-                onChange={(e) => setStatusFilter(e.target.value as any)}
-              >
-                <MenuItem value="all">All Status</MenuItem>
-                <MenuItem value="Active">Active</MenuItem>
-                <MenuItem value="Paused">Paused</MenuItem>
-                <MenuItem value="Overdue">Overdue</MenuItem>
-                <MenuItem value="No Membership">No Membership</MenuItem>
-              </Select>
-            </FormControl>
-
-            <FormControl size="small" sx={{ minWidth: 120 }}>
-              <InputLabel>Type</InputLabel>
-              <Select
-                value={membershipTypeFilter}
-                label="Type"
-                onChange={(e) => setMembershipTypeFilter(e.target.value as any)}
-              >
-                <MenuItem value="all">All Types</MenuItem>
-                <MenuItem value="Recurring">Recurring</MenuItem>
-                <MenuItem value="Prepaid">Prepaid</MenuItem>
-              </Select>
-            </FormControl>
+            <DatePicker
+              label="Date of Birth (Optional)"
+              value={formData.dateOfBirth || null}
+              onChange={(newValue) => handleInputChange('dateOfBirth', newValue)}
+              slotProps={{
+                textField: {
+                  size: "small",
+                  helperText: "Used for age verification and special programs",
+                  disabled: loading,
+                },
+              }}
+              maxDate={new Date()}
+            />
           </Box>
-        </Paper>
+        );
 
-        {/* Member Cards */}
-        <Box sx={{ 
-          display: 'flex', 
-          flexDirection: 'column',
-          gap: 2,
-          mt: 1 
-        }}>
-          {filteredMembers.map((member) => (
-            <Card key={member.id} sx={{ elevation: 1 }}>
-              <CardContent sx={{ pb: 1 }}>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <Avatar sx={{ width: 40, height: 40, bgcolor: 'primary.main' }}>
-                      {getMemberInitials(member)}
-                    </Avatar>
-                    <Box>
-                      <Typography variant="h6" sx={{ fontSize: '1.1rem', fontWeight: 600 }}>
-                        {member?.firstName || 'Unknown'} {member?.lastName || 'Member'}
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        Member since {formatDate(member?.joinDate)}
-                      </Typography>
-                    </Box>
-                  </Box>
-                  
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <Chip
-                      icon={getStatusIcon(member?.membership?.status || 'No Membership')}
-                      label={member?.membership?.status || 'No Membership'}
-                      color={getStatusColor(member?.membership?.status || 'No Membership') as any}
-                      size="small"
+      case 1: // Contact & Emergency
+        return (
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+              <ContactPhoneIcon color="primary" />
+              <Typography variant="h6">Contact & Emergency Information</Typography>
+            </Box>
+
+            {/* Address */}
+            <Paper sx={{ p: 2 }}>
+              <Typography variant="subtitle2" sx={{ mb: 2 }}>Address (Optional)</Typography>
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <TextField
+                  label="Street Address"
+                  value={formData.address?.street || ''}
+                  onChange={(e) => handleNestedInputChange('address', 'street', e.target.value)}
+                  size="small"
+                  disabled={loading}
+                />
+                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '2fr 1fr 1fr' }, gap: 2 }}>
+                  <TextField
+                    label="City"
+                    value={formData.address?.city || ''}
+                    onChange={(e) => handleNestedInputChange('address', 'city', e.target.value)}
+                    size="small"
+                    disabled={loading}
+                  />
+                  <TextField
+                    label="State"
+                    value={formData.address?.state || ''}
+                    onChange={(e) => handleNestedInputChange('address', 'state', e.target.value)}
+                    size="small"
+                    disabled={loading}
+                  />
+                  <TextField
+                    label="ZIP Code"
+                    value={formData.address?.zipCode || ''}
+                    onChange={(e) => handleNestedInputChange('address', 'zipCode', e.target.value)}
+                    size="small"
+                    disabled={loading}
+                  />
+                </Box>
+              </Box>
+            </Paper>
+
+            {/* Emergency Contact */}
+            <Paper sx={{ p: 2 }}>
+              <Typography variant="subtitle2" sx={{ mb: 2 }}>Emergency Contact *</Typography>
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)' }, gap: 2 }}>
+                  <TextField
+                    label="Full Name *"
+                    value={formData.emergencyContact.name}
+                    onChange={(e) => handleNestedInputChange('emergencyContact', 'name', e.target.value)}
+                    size="small"
+                    error={!!validationErrors['emergencyContact.name']}
+                    helperText={validationErrors['emergencyContact.name']}
+                    disabled={loading}
+                  />
+                  <TextField
+                    label="Relationship *"
+                    value={formData.emergencyContact.relationship}
+                    onChange={(e) => handleNestedInputChange('emergencyContact', 'relationship', e.target.value)}
+                    size="small"
+                    error={!!validationErrors['emergencyContact.relationship']}
+                    helperText={validationErrors['emergencyContact.relationship']}
+                    disabled={loading}
+                    placeholder="Parent, Spouse, Friend, etc."
+                  />
+                </Box>
+                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)' }, gap: 2 }}>
+                  <TextField
+                    label="Phone Number *"
+                    value={formData.emergencyContact.phone}
+                    onChange={(e) => handleNestedInputChange('emergencyContact', 'phone', e.target.value)}
+                    size="small"
+                    error={!!validationErrors['emergencyContact.phone']}
+                    helperText={validationErrors['emergencyContact.phone']}
+                    disabled={loading}
+                    placeholder="(555) 123-4567"
+                  />
+                  <TextField
+                    label="Email (Optional)"
+                    type="email"
+                    value={formData.emergencyContact.email || ''}
+                    onChange={(e) => handleNestedInputChange('emergencyContact', 'email', e.target.value)}
+                    size="small"
+                    error={!!validationErrors['emergencyContact.email']}
+                    helperText={validationErrors['emergencyContact.email']}
+                    disabled={loading}
+                  />
+                </Box>
+              </Box>
+            </Paper>
+          </Box>
+        );
+
+      case 2: // Membership Details
+        return (
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+              <CreditCardIcon color="primary" />
+              <Typography variant="h6">Membership Details</Typography>
+            </Box>
+
+            <FormControl size="small">
+              <InputLabel>Membership Type *</InputLabel>
+              <Select
+                value={formData.membershipType}
+                label="Membership Type *"
+                onChange={(e) => handleInputChange('membershipType', e.target.value as MembershipType)}
+                disabled={loading}
+              >
+                {membershipTypes.map(type => (
+                  <MenuItem key={type} value={type}>
+                    {type === 'Recurring' ? 'Recurring Monthly' : 'Prepaid Credits'}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+
+            {formData.membershipType === 'Recurring' ? (
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <TextField
+                  label="Monthly Amount *"
+                  type="number"
+                  value={formData.monthlyAmount || ''}
+                  onChange={(e) => handleInputChange('monthlyAmount', parseFloat(e.target.value) || 0)}
+                  size="small"
+                  error={!!validationErrors.monthlyAmount}
+                  helperText={validationErrors.monthlyAmount}
+                  disabled={loading}
+                  InputProps={{
+                    startAdornment: <Typography>$</Typography>,
+                    inputProps: { min: 0, step: 0.01 }
+                  }}
+                />
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      checked={formData.autoRenew}
+                      onChange={(e) => handleInputChange('autoRenew', e.target.checked)}
+                      disabled={loading}
                     />
-                    {isAdmin && (
-                      <IconButton
-                        onClick={(e) => handleMenuClick(e, member)}
-                        size="small"
-                      >
-                        <MoreVertIcon />
-                      </IconButton>
-                    )}
-                  </Box>
-                </Box>
+                  }
+                  label="Auto-renew membership"
+                />
+              </Box>
+            ) : (
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <TextField
+                  label="Total Amount *"
+                  type="number"
+                  value={formData.totalAmount || ''}
+                  onChange={(e) => handleInputChange('totalAmount', parseFloat(e.target.value) || 0)}
+                  size="small"
+                  error={!!validationErrors.totalAmount}
+                  helperText={validationErrors.totalAmount}
+                  disabled={loading}
+                  InputProps={{
+                    startAdornment: <Typography>$</Typography>,
+                    inputProps: { min: 0, step: 0.01 }
+                  }}
+                />
+                <TextField
+                  label="Total Credits *"
+                  type="number"
+                  value={formData.totalCredits || ''}
+                  onChange={(e) => handleInputChange('totalCredits', parseInt(e.target.value) || 0)}
+                  size="small"
+                  error={!!validationErrors.totalCredits}
+                  helperText={validationErrors.totalCredits || 'Number of classes/sessions included'}
+                  disabled={loading}
+                  InputProps={{
+                    inputProps: { min: 1 }
+                  }}
+                />
+              </Box>
+            )}
 
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <EmailIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
-                    <Typography variant="body2" color="text.secondary">
-                      {member?.email || 'No email'}
-                    </Typography>
-                  </Box>
-                  
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <PhoneIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
-                    <Typography variant="body2" color="text.secondary">
-                      {member?.phone || 'No phone'}
-                    </Typography>
-                  </Box>
-                  
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <CreditCardIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
-                    <Typography variant="body2" color="text.secondary">
-                      {member?.membership?.type || 'No Membership'}
-                      {member?.membership?.type === 'Recurring' && member?.membership?.monthlyAmount && 
-                        ` - $${member.membership.monthlyAmount}/month`
-                      }
-                      {member?.membership?.type === 'Prepaid' && member?.membership?.remainingCredits !== undefined && 
-                        ` - ${member.membership.remainingCredits} credits left`
-                      }
-                    </Typography>
-                  </Box>
+            <FormControl size="small">
+              <InputLabel>Payment Method</InputLabel>
+              <Select
+                value={formData.paymentMethod}
+                label="Payment Method"
+                onChange={(e) => handleInputChange('paymentMethod', e.target.value as PaymentMethod)}
+                disabled={loading}
+              >
+                {paymentMethods.map(method => (
+                  <MenuItem key={method} value={method}>{method}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
 
-                  {member?.membership?.status === 'Active' && member?.lastVisit && (
-                    <Typography variant="caption" color="text.secondary">
-                      Last visit: {formatDate(member.lastVisit)}
-                    </Typography>
-                  )}
-                </Box>
+            <Autocomplete
+              multiple
+              options={commonTags}
+              freeSolo
+              value={formData.tags || []}
+              onChange={(_, newValue) => handleInputChange('tags', newValue)}
+              disabled={loading}
+              renderTags={(value, getTagProps) =>
+                value.map((option, index) => (
+                  <Chip variant="outlined" label={option} {...getTagProps({ index })} />
+                ))
+              }
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  label="Tags (Optional)"
+                  placeholder="Add tags..."
+                  size="small"
+                  helperText="Use tags to categorize members"
+                />
+              )}
+            />
+          </Box>
+        );
 
-                {member.tags && member.tags.length > 0 && (
-                  <Box sx={{ mt: 1, display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                    {member.tags.map((tag) => (
-                      <Chip
-                        key={tag}
-                        label={tag}
-                        size="small"
-                        variant="outlined"
-                        color="primary"
-                        sx={{ fontSize: '0.75rem' }}
-                      />
-                    ))}
-                  </Box>
-                )}
-              </CardContent>
-            </Card>
-          ))}
-        </Box>
+      case 3: // Final Review
+        return (
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+              <SecurityIcon color="primary" />
+              <Typography variant="h6">Final Review & Waiver</Typography>
+            </Box>
 
-        {/* Action Menu */}
-        <Menu
-          anchorEl={anchorEl}
-          open={Boolean(anchorEl)}
-          onClose={handleMenuClose}
-          transformOrigin={{ horizontal: 'right', vertical: 'top' }}
-          anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
-        >
-          {selectedMember && (
-            <>
-              <MenuItemComponent onClick={() => onEdit(selectedMember)}>
-                <EditIcon sx={{ mr: 1 }} />
-                Edit Member
-              </MenuItemComponent>
-              
-              <Divider />
-              
-              <MenuItemComponent 
-                onClick={() => handleStatusClick(selectedMember, 'Active')}
-                disabled={selectedMember?.membership?.status === 'Active'}
-              >
-                <CheckCircleIcon sx={{ mr: 1 }} />
-                Mark Active
-              </MenuItemComponent>
-              
-              <MenuItemComponent 
-                onClick={() => handleStatusClick(selectedMember, 'Paused')}
-                disabled={selectedMember?.membership?.status === 'Paused'}
-              >
-                <PauseCircleIcon sx={{ mr: 1 }} />
-                Mark Paused
-              </MenuItemComponent>
-              
-              <MenuItemComponent 
-                onClick={() => handleStatusClick(selectedMember, 'Overdue')}
-                disabled={selectedMember?.membership?.status === 'Overdue'}
-              >
-                <ErrorIcon sx={{ mr: 1 }} />
-                Mark Overdue
-              </MenuItemComponent>
-              
-              <Divider />
-              
-              <MenuItemComponent 
-                onClick={() => handleDeleteClick(selectedMember)}
-                sx={{ color: 'error.main' }}
-              >
-                <DeleteIcon sx={{ mr: 1 }} />
-                Deactivate
-              </MenuItemComponent>
-            </>
-          )}
-        </Menu>
-      </>
+            {/* Review Summary */}
+            <Paper sx={{ p: 2, bgcolor: 'grey.50' }}>
+              <Typography variant="subtitle2" sx={{ mb: 2 }}>Member Summary</Typography>
+              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)' }, gap: 1 }}>
+                <Typography variant="body2">
+                  <strong>Name:</strong> {formData.firstName} {formData.lastName}
+                </Typography>
+                <Typography variant="body2">
+                  <strong>Email:</strong> {formData.email}
+                </Typography>
+                <Typography variant="body2">
+                  <strong>Phone:</strong> {formData.phone}
+                </Typography>
+                <Typography variant="body2">
+                  <strong>Membership:</strong> {formData.membershipType}
+                  {formData.membershipType === 'Recurring' 
+                    ? ` - $${formData.monthlyAmount}/month`
+                    : ` - ${formData.totalCredits} credits for $${formData.totalAmount}`
+                  }
+                </Typography>
+                <Typography variant="body2">
+                  <strong>Emergency Contact:</strong> {formData.emergencyContact.name} ({formData.emergencyContact.relationship})
+                </Typography>
+                <Typography variant="body2">
+                  <strong>Payment Method:</strong> {formData.paymentMethod}
+                </Typography>
+              </Box>
+            </Paper>
+
+            {/* Medical Notes */}
+            <TextField
+              label="Medical Notes (Optional)"
+              multiline
+              rows={3}
+              value={formData.medicalNotes || ''}
+              onChange={(e) => handleInputChange('medicalNotes', e.target.value)}
+              size="small"
+              disabled={loading}
+              helperText="Any medical conditions, allergies, or limitations to be aware of"
+            />
+
+            {/* Internal Notes */}
+            <TextField
+              label="Internal Notes (Optional)"
+              multiline
+              rows={2}
+              value={formData.notes || ''}
+              onChange={(e) => handleInputChange('notes', e.target.value)}
+              size="small"
+              disabled={loading}
+              helperText="Internal notes for staff reference"
+            />
+
+            {/* Waiver */}
+            <Paper sx={{ p: 2, border: 1, borderColor: 'primary.main' }}>
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={formData.waiverSigned}
+                    onChange={(e) => handleInputChange('waiverSigned', e.target.checked)}
+                    disabled={loading}
+                    color="primary"
+                  />
+                }
+                label={
+                  <Typography variant="body2">
+                    <strong>Liability Waiver Signed *</strong>
+                    <br />
+                    I confirm that the liability waiver has been signed by the member or their legal guardian.
+                  </Typography>
+                }
+              />
+              {validationErrors.waiverSigned && (
+                <Typography variant="caption" color="error" sx={{ mt: 1, display: 'block' }}>
+                  {validationErrors.waiverSigned}
+                </Typography>
+              )}
+            </Paper>
+
+            {!editData && (
+              <Alert severity="info">
+                <Typography variant="body2">
+                  <strong>New Member Account:</strong><br />
+                  A customer portal account will be created automatically with a secure password.
+                  The password will be displayed after member creation.
+                </Typography>
+              </Alert>
+            )}
+          </Box>
+        );
+
+      default:
+        return null;
+    }
+  };
+
+  // Success screen after member creation
+  if (memberCreated && showPassword) {
+    return (
+      <Dialog
+        open={open}
+        onClose={handleClose}
+        fullWidth
+        maxWidth="sm"
+        fullScreen={isMobile}
+        disableEscapeKeyDown
+      >
+        <DialogTitle sx={{ textAlign: 'center', pb: 1 }}>
+          <Typography variant="h5" color="success.main" fontWeight={600}>
+            ✓ Member Created Successfully!
+          </Typography>
+        </DialogTitle>
+
+        <DialogContent sx={{ px: { xs: 2, sm: 3 } }}>
+          <Paper sx={{ p: 3, bgcolor: 'success.lighter', mb: 3 }}>
+            <Typography variant="h6" sx={{ mb: 2 }}>
+              {memberCreated.memberRecord.firstName} {memberCreated.memberRecord.lastName}
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Member ID: {memberCreated.memberRecord.id}
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              A customer portal account has been created with the following credentials:
+            </Typography>
+          </Paper>
+
+          <Paper sx={{ p: 2, bgcolor: 'warning.lighter', border: 1, borderColor: 'warning.main' }}>
+            <Typography variant="subtitle2" sx={{ mb: 1 }}>
+              🔐 Customer Portal Login Credentials
+            </Typography>
+            <Typography variant="body2" sx={{ mb: 1 }}>
+              <strong>Email:</strong> {memberCreated.memberRecord.email}
+            </Typography>
+            <Typography variant="body2" sx={{ mb: 2 }}>
+              <strong>Temporary Password:</strong> <code style={{ fontSize: '1.1em', fontWeight: 'bold' }}>{memberCreated.password}</code>
+            </Typography>
+            <Typography variant="caption" color="warning.main">
+              ⚠️ Please provide these credentials to the member securely. They can change their password after first login.
+            </Typography>
+          </Paper>
+
+          <Alert severity="info" sx={{ mt: 2 }}>
+            <Typography variant="body2">
+              The member can access the customer portal at <strong>www.pacificmma.com</strong> to book classes, view their membership, and more.
+            </Typography>
+          </Alert>
+        </DialogContent>
+
+        <DialogActions sx={{ px: 3, pb: 3 }}>
+          <Button
+            onClick={handleClose}
+            variant="contained"
+            color="success"
+            fullWidth
+          >
+            Done
+          </Button>
+        </DialogActions>
+      </Dialog>
     );
   }
 
-  // Desktop table view
   return (
-    <>
-      {/* Success Message */}
-      {successMessage && (
-        <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccessMessage(null)}>
-          {successMessage}
-        </Alert>
-      )}
-
-      {/* Filters and Tabs */}
-      <Paper sx={{ mb: 2 }}>
-        <Tabs 
-          value={tabValue} 
-          onChange={(_, newValue) => setTabValue(newValue)}
-          sx={{ borderBottom: 1, borderColor: 'divider' }}
-        >
-          <Tab label={`All Members (${memberStats.all})`} />
-          <Tab label={`Active (${memberStats.active})`} />
-          <Tab label={`Inactive (${memberStats.inactive})`} />
-        </Tabs>
-        
-        <Box sx={{ p: 2, display: 'flex', gap: 2, alignItems: 'center' }}>
-          <TextField
-            placeholder="Search members..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            size="small"
-            sx={{ minWidth: 300 }}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <SearchIcon />
-                </InputAdornment>
-              ),
-            }}
-          />
-          
-          <FormControl size="small" sx={{ minWidth: 120 }}>
-            <InputLabel>Status</InputLabel>
-            <Select
-              value={statusFilter}
-              label="Status"
-              onChange={(e) => setStatusFilter(e.target.value as any)}
-            >
-              <MenuItem value="all">All Status</MenuItem>
-              <MenuItem value="Active">Active</MenuItem>
-              <MenuItem value="Paused">Paused</MenuItem>
-              <MenuItem value="Overdue">Overdue</MenuItem>
-              <MenuItem value="No Membership">No Membership</MenuItem>
-            </Select>
-          </FormControl>
-
-          <FormControl size="small" sx={{ minWidth: 120 }}>
-            <InputLabel>Type</InputLabel>
-            <Select
-              value={membershipTypeFilter}
-              label="Type"
-              onChange={(e) => setMembershipTypeFilter(e.target.value as any)}
-            >
-              <MenuItem value="all">All Types</MenuItem>
-              <MenuItem value="Recurring">Recurring</MenuItem>
-              <MenuItem value="Prepaid">Prepaid</MenuItem>
-            </Select>
-          </FormControl>
-
-          <Typography variant="body2" color="text.secondary" sx={{ ml: 'auto' }}>
-            Showing {filteredMembers.length} of {memberList.length} members
-          </Typography>
-        </Box>
-      </Paper>
-
-      {/* Desktop Table */}
-      <TableContainer component={Paper}>
-        <Table sx={{ minWidth: 650 }}>
-          <TableHead>
-            <TableRow>
-              <TableCell sx={{ fontWeight: 600, fontSize: '0.95rem' }}>
-                Member
-              </TableCell>
-              <TableCell sx={{ fontWeight: 600, fontSize: '0.95rem' }}>
-                Contact
-              </TableCell>
-              <TableCell sx={{ fontWeight: 600, fontSize: '0.95rem' }}>
-                Membership
-              </TableCell>
-              <TableCell sx={{ fontWeight: 600, fontSize: '0.95rem' }}>
-                Status
-              </TableCell>
-              <TableCell sx={{ fontWeight: 600, fontSize: '0.95rem' }}>
-                Last Visit
-              </TableCell>
-              {isAdmin && (
-                <TableCell sx={{ fontWeight: 600, fontSize: '0.95rem', width: 100 }}>
-                  Actions
-                </TableCell>
-              )}
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {filteredMembers.map((member) => (
-              <TableRow
-                key={member.id}
-                sx={{
-                  '&:hover': {
-                    backgroundColor: theme.palette.action.hover
-                  },
-                  '&:last-child td, &:last-child th': { border: 0 }
-                }}
-              >
-                <TableCell>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                    <Avatar sx={{ width: 40, height: 40, bgcolor: 'primary.main' }}>
-                      {getMemberInitials(member)}
-                    </Avatar>
-                    <Box>
-                      <Typography variant="body2" fontWeight={600}>
-                        {member?.firstName || 'Unknown'} {member?.lastName || 'Member'}
-                      </Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        Joined {formatDate(member?.joinDate)}
-                      </Typography>
-                      {member?.tags && member.tags.length > 0 && (
-                        <Box sx={{ mt: 0.5, display: 'flex', gap: 0.5 }}>
-                          {member.tags.slice(0, 2).map((tag) => (
-                            <Chip
-                              key={tag}
-                              label={tag}
-                              size="small"
-                              variant="outlined"
-                              color="primary"
-                              sx={{ fontSize: '0.7rem', height: 18 }}
-                            />
-                          ))}
-                          {member.tags.length > 2 && (
-                            <Typography variant="caption" color="text.secondary">
-                              +{member.tags.length - 2} more
-                            </Typography>
-                          )}
-                        </Box>
-                      )}
-                    </Box>
-                  </Box>
-                </TableCell>
-                
-                <TableCell sx={{ fontSize: '0.9rem' }}>
-                  <Box>
-                    <Typography variant="body2">
-                      {member?.email || 'No email'}
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      {member?.phone || 'No phone'}
-                    </Typography>
-                  </Box>
-                </TableCell>
-                
-                <TableCell sx={{ fontSize: '0.9rem' }}>
-                  <Box>
-                    <Typography variant="body2" fontWeight={500}>
-                      {member?.membership?.type || 'No Membership'}
-                    </Typography>
-                    {member?.membership?.type === 'Recurring' && member?.membership?.monthlyAmount && (
-                      <Typography variant="body2" color="success.main">
-                        ${member.membership.monthlyAmount}/month
-                      </Typography>
-                    )}
-                    {member?.membership?.type === 'Prepaid' && member?.membership?.remainingCredits !== undefined && (
-                      <Typography variant="body2" color="primary.main">
-                        {member.membership.remainingCredits} credits left
-                      </Typography>
-                    )}
-                  </Box>
-                </TableCell>
-                
-                <TableCell>
-                  <Chip
-                    icon={getStatusIcon(member?.membership?.status || 'No Membership')}
-                    label={member?.membership?.status || 'No Membership'}
-                    color={getStatusColor(member?.membership?.status || 'No Membership') as any}
-                    size="small"
-                    variant="outlined"
-                  />
-                </TableCell>
-                
-                <TableCell sx={{ fontSize: '0.9rem' }}>
-                  <Box>
-                    <Typography variant="body2">
-                      {member?.lastVisit ? formatDate(member.lastVisit) : 'Never'}
-                    </Typography>
-                    {(member?.totalVisits || 0) > 0 && (
-                      <Typography variant="caption" color="text.secondary">
-                        {member.totalVisits} total visits
-                      </Typography>
-                    )}
-                  </Box>
-                </TableCell>
-                
-                {isAdmin && (
-                  <TableCell>
-                    <IconButton
-                      onClick={(e) => handleMenuClick(e, member)}
-                      size="small"
-                    >
-                      <MoreVertIcon />
-                    </IconButton>
-                  </TableCell>
-                )}
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </TableContainer>
-
-      {/* Action Menu */}
-      <Menu
-        anchorEl={anchorEl}
-        open={Boolean(anchorEl)}
-        onClose={handleMenuClose}
-        transformOrigin={{ horizontal: 'right', vertical: 'top' }}
-        anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
+    <LocalizationProvider dateAdapter={AdapterDateFns}>
+      <Dialog
+        open={open}
+        onClose={handleClose}
+        fullWidth
+        maxWidth="md"
+        fullScreen={isMobile}
+        disableEscapeKeyDown={loading}
+        sx={{
+          '& .MuiDialog-paper': {
+            margin: isMobile ? 0 : 2,
+            width: isMobile ? '100%' : 'auto',
+            maxHeight: isMobile ? '100%' : 'calc(100% - 64px)',
+          },
+        }}
       >
-        {selectedMember && (
-          <>
-            <MenuItemComponent onClick={() => onEdit(selectedMember)}>
-              <EditIcon sx={{ mr: 1 }} />
-              Edit Member
-            </MenuItemComponent>
-            
-            <Divider />
-            
-            <MenuItemComponent 
-              onClick={() => handleStatusClick(selectedMember, 'Active')}
-              disabled={selectedMember?.membership?.status === 'Active'}
-            >
-              <CheckCircleIcon sx={{ mr: 1 }} />
-              Mark Active
-            </MenuItemComponent>
-            
-            <MenuItemComponent 
-              onClick={() => handleStatusClick(selectedMember, 'Paused')}
-              disabled={selectedMember?.membership?.status === 'Paused'}
-            >
-              <PauseCircleIcon sx={{ mr: 1 }} />
-              Mark Paused
-            </MenuItemComponent>
-            
-            <MenuItemComponent 
-              onClick={() => handleStatusClick(selectedMember, 'Overdue')}
-              disabled={selectedMember?.membership?.status === 'Overdue'}
-            >
-              <ErrorIcon sx={{ mr: 1 }} />
-              Mark Overdue
-            </MenuItemComponent>
-            
-            <Divider />
-            
-            <MenuItemComponent 
-              onClick={() => handleDeleteClick(selectedMember)}
-              sx={{ color: 'error.main' }}
-            >
-              <DeleteIcon sx={{ mr: 1 }} />
-              Deactivate
-            </MenuItemComponent>
-          </>
+        {loading && (
+          <LinearProgress 
+            sx={{ 
+              position: 'absolute', 
+              top: 0, 
+              left: 0, 
+              right: 0, 
+              zIndex: 1 
+            }} 
+          />
         )}
-      </Menu>
 
-      {/* Delete Confirmation Dialog */}
-      <Dialog open={deleteDialogOpen} onClose={handleDeleteCancel}>
-        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <WarningIcon color="warning" />
-          Deactivate Member
+        <DialogTitle sx={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          pb: 1,
+        }}>
+          <Typography variant="h6">
+            {editData ? 'Edit Member' : 'Add New Member'}
+          </Typography>
+          {isMobile && (
+            <IconButton onClick={handleClose} size="small" disabled={loading}>
+              <CloseIcon />
+            </IconButton>
+          )}
         </DialogTitle>
-        <DialogContent>
-          <Typography gutterBottom>
-            Are you sure you want to deactivate{' '}
-            <strong>{memberToDelete?.firstName} {memberToDelete?.lastName}</strong>?
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            This will mark the member as inactive but preserve their data. The member can be reactivated later if needed.
-          </Typography>
+
+        <DialogContent sx={{ px: { xs: 2, sm: 3 } }}>
+          {error && (
+            <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
+              {error}
+            </Alert>
+          )}
+
+          {/* Stepper */}
+          <Stepper activeStep={activeStep} sx={{ mb: 4 }}>
+            {steps.map((label) => (
+              <Step key={label}>
+                <StepLabel>{label}</StepLabel>
+              </Step>
+            ))}
+          </Stepper>
+
+          {/* Step Content */}
+          {renderStepContent(activeStep)}
         </DialogContent>
-        <DialogActions>
-          <Button onClick={handleDeleteCancel} disabled={deleteLoading !== null}>
+
+        <DialogActions sx={{
+          px: { xs: 2, sm: 3 },
+          pb: { xs: 2, sm: 3 },
+          pt: 1,
+          gap: 1,
+          flexDirection: { xs: 'column', sm: 'row' },
+          '& .MuiButton-root': {
+            width: { xs: '100%', sm: 'auto' },
+            minWidth: { sm: 80 }
+          }
+        }}>
+          <Button
+            onClick={handleClose}
+            disabled={loading}
+            variant="outlined"
+          >
             Cancel
           </Button>
-          <Button 
-            onClick={handleDeleteConfirm} 
-            color="warning" 
-            variant="contained"
-            disabled={deleteLoading !== null}
-            startIcon={deleteLoading ? <CircularProgress size={16} /> : <PersonOffIcon />}
-          >
-            {deleteLoading ? 'Deactivating...' : 'Deactivate Member'}
-          </Button>
+          
+          {activeStep > 0 && (
+            <Button
+              onClick={handleBack}
+              disabled={loading}
+              variant="outlined"
+            >
+              Back
+            </Button>
+          )}
+          
+          {activeStep < steps.length - 1 ? (
+            <Button
+              onClick={handleNext}
+              variant="contained"
+              disabled={loading}
+            >
+              Next
+            </Button>
+          ) : (
+            <Button
+              onClick={handleSubmit}
+              variant="contained"
+              disabled={loading}
+              startIcon={loading ? <CircularProgress size={20} /> : null}
+            >
+              {loading ? (editData ? 'Updating...' : 'Creating Member...') : (editData ? 'Update Member' : 'Create Member')}
+            </Button>
+          )}
         </DialogActions>
       </Dialog>
-
-      {/* Status Change Confirmation Dialog */}
-      <Dialog open={statusDialogOpen} onClose={handleStatusCancel}>
-        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          {getStatusIcon(newStatus)}
-          Update Membership Status
-        </DialogTitle>
-        <DialogContent>
-          <Typography gutterBottom>
-            Are you sure you want to change the membership status of{' '}
-            <strong>{memberToUpdate?.firstName} {memberToUpdate?.lastName}</strong>{' '}
-            to <strong>{getStatusActionName(newStatus)}</strong>?
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            {getStatusDescription(newStatus)}
-          </Typography>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={handleStatusCancel} disabled={statusLoading !== null}>
-            Cancel
-          </Button>
-          <Button 
-            onClick={handleStatusConfirm} 
-            color="primary" 
-            variant="contained"
-            disabled={statusLoading !== null}
-            startIcon={statusLoading ? <CircularProgress size={16} /> : getStatusIcon(newStatus)}
-          >
-            {statusLoading ? 'Updating...' : `Mark as ${getStatusActionName(newStatus)}`}
-          </Button>
-        </DialogActions>
-      </Dialog>
-    </>
+    </LocalizationProvider>
   );
 };
 
-export default MemberTable;
+export default MemberForm;
