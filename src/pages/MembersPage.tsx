@@ -1,4 +1,4 @@
-// src/pages/MembersPage.tsx - Fixed Grid Import
+// src/pages/MembersPage.tsx - Enhanced with Belt/Level Management
 
 import React, { useState, useMemo } from 'react';
 import {
@@ -10,8 +10,9 @@ import {
     useMediaQuery,
     Fab,
     Paper,
+    SpeedDial,
+    SpeedDialAction,
 } from '@mui/material';
-import { Grid } from '@mui/material'; // This way instead
 import AddIcon from '@mui/icons-material/Add';
 import GroupIcon from '@mui/icons-material/Group';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
@@ -20,17 +21,22 @@ import ErrorIcon from '@mui/icons-material/Error';
 import PersonOffIcon from '@mui/icons-material/PersonOff';
 import AttachMoneyIcon from '@mui/icons-material/AttachMoney';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
+import EmojiEventsIcon from '@mui/icons-material/EmojiEvents';
+import MoreVertIcon from '@mui/icons-material/MoreVert';
 import MemberTable from '../components/MemberTable';
 import MemberForm from '../components/MemberForm';
+import BeltLevelManagement from '../components/BeltLevelManagement';
 import ProtectedComponent from '../components/ProtectedComponent';
 import { useRoleControl } from '../hooks/useRoleControl';
 import { MemberRecord, MemberStats } from '../types/members';
 
 const MembersPage = () => {
     const [openForm, setOpenForm] = useState(false);
+    const [openBeltManagement, setOpenBeltManagement] = useState(false);
     const [refreshTrigger, setRefreshTrigger] = useState(0);
     const [editData, setEditData] = useState<MemberRecord | undefined>(undefined);
     const [memberList, setMemberList] = useState<MemberRecord[]>([]);
+    const [speedDialOpen, setSpeedDialOpen] = useState(false);
 
     const theme = useTheme();
     const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
@@ -116,6 +122,12 @@ const MembersPage = () => {
         setRefreshTrigger(prev => prev + 1);
     };
 
+    const handleBeltManagementClose = () => {
+        setOpenBeltManagement(false);
+        // Trigger a refresh to update any belt/level data
+        setRefreshTrigger(prev => prev + 1);
+    };
+
     const handleEdit = (memberData: MemberRecord) => {
         setEditData(memberData);
         setOpenForm(true);
@@ -124,7 +136,26 @@ const MembersPage = () => {
     const handleAddNew = () => {
         setEditData(undefined);
         setOpenForm(true);
+        setSpeedDialOpen(false);
     };
+
+    const handleOpenBeltManagement = () => {
+        setOpenBeltManagement(true);
+        setSpeedDialOpen(false);
+    };
+
+    const speedDialActions = [
+        {
+            icon: <AddIcon />,
+            name: 'Add Member',
+            onClick: handleAddNew,
+        },
+        {
+            icon: <EmojiEventsIcon />,
+            name: 'Manage Belts & Levels',
+            onClick: handleOpenBeltManagement,
+        },
+    ];
 
     return (
         <>
@@ -161,35 +192,51 @@ const MembersPage = () => {
                         </Typography>
                     </Box>
 
-                    {/* Desktop Add Button - Sadece admin için */}
+                    {/* Desktop Buttons - Sadece admin için */}
                     <ProtectedComponent allowedRoles={['admin']}>
                         {!isMobile && (
-                            <Button
-                                variant="contained"
-                                startIcon={<AddIcon />}
-                                onClick={handleAddNew}
-                                size="large"
-                                sx={{
-                                    px: 3,
-                                    py: 1.5,
-                                    fontSize: '0.95rem',
-                                    fontWeight: 600,
-                                    borderRadius: 2,
-                                    boxShadow: 3,
-                                    '&:hover': {
-                                        boxShadow: 6,
-                                    },
-                                }}
-                            >
-                                Add Member
-                            </Button>
+                            <Box sx={{ display: 'flex', gap: 1 }}>
+                                <Button
+                                    variant="outlined"
+                                    startIcon={<EmojiEventsIcon />}
+                                    onClick={handleOpenBeltManagement}
+                                    size="large"
+                                    sx={{
+                                        px: 2,
+                                        py: 1.5,
+                                        fontSize: '0.95rem',
+                                        fontWeight: 600,
+                                        borderRadius: 2,
+                                    }}
+                                >
+                                    Belts & Levels
+                                </Button>
+                                <Button
+                                    variant="contained"
+                                    startIcon={<AddIcon />}
+                                    onClick={handleAddNew}
+                                    size="large"
+                                    sx={{
+                                        px: 3,
+                                        py: 1.5,
+                                        fontSize: '0.95rem',
+                                        fontWeight: 600,
+                                        borderRadius: 2,
+                                        boxShadow: 3,
+                                        '&:hover': {
+                                            boxShadow: 6,
+                                        },
+                                    }}
+                                >
+                                    Add Member
+                                </Button>
+                            </Box>
                         )}
                     </ProtectedComponent>
                 </Box>
 
                 {/* Stats Cards - Sadece admin için */}
                 <ProtectedComponent allowedRoles={['admin']}>
-                    {/* Use CSS Grid instead of MUI Grid to avoid TypeScript issues */}
                     <Box sx={{
                         display: 'grid',
                         gridTemplateColumns: {
@@ -320,26 +367,31 @@ const MembersPage = () => {
                 </Box>
             </Container>
 
-            {/* Mobile Floating Action Button - Sadece admin için */}
+            {/* Mobile Speed Dial - Sadece admin için */}
             <ProtectedComponent allowedRoles={['admin']}>
                 {isMobile && (
-                    <Fab
-                        color="primary"
-                        aria-label="add member"
-                        onClick={handleAddNew}
+                    <SpeedDial
+                        ariaLabel="Member actions"
                         sx={{
                             position: 'fixed',
                             bottom: { xs: 24, sm: 32 },
                             right: { xs: 24, sm: 32 },
                             zIndex: theme.zIndex.speedDial,
-                            boxShadow: 6,
-                            '&:hover': {
-                                boxShadow: 12,
-                            },
                         }}
+                        icon={<MoreVertIcon />}
+                        open={speedDialOpen}
+                        onOpen={() => setSpeedDialOpen(true)}
+                        onClose={() => setSpeedDialOpen(false)}
                     >
-                        <AddIcon />
-                    </Fab>
+                        {speedDialActions.map((action) => (
+                            <SpeedDialAction
+                                key={action.name}
+                                icon={action.icon}
+                                tooltipTitle={action.name}
+                                onClick={action.onClick}
+                            />
+                        ))}
+                    </SpeedDial>
                 )}
             </ProtectedComponent>
 
@@ -349,6 +401,14 @@ const MembersPage = () => {
                     open={openForm}
                     onClose={handleFormClose}
                     editData={editData}
+                />
+            </ProtectedComponent>
+
+            {/* Belt & Level Management Modal - Sadece admin için */}
+            <ProtectedComponent allowedRoles={['admin']}>
+                <BeltLevelManagement
+                    open={openBeltManagement}
+                    onClose={handleBeltManagementClose}
                 />
             </ProtectedComponent>
         </>

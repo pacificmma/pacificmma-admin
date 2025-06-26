@@ -1,4 +1,4 @@
-// src/components/MemberForm.tsx
+// src/components/MemberForm.tsx - Fixed character deletion issue
 
 import React, { useState, useEffect } from 'react';
 import {
@@ -27,12 +27,15 @@ import {
   Step,
   StepLabel,
   Paper,
+  Autocomplete,
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import PersonIcon from '@mui/icons-material/Person';
 import ContactEmergencyIcon from '@mui/icons-material/ContactEmergency';
 import CreditCardIcon from '@mui/icons-material/CreditCard';
 import GavelIcon from '@mui/icons-material/Gavel';
+import EmojiEventsIcon from '@mui/icons-material/EmojiEvents';
+import SchoolIcon from '@mui/icons-material/School';
 import { DatePicker } from '@mui/x-date-pickers';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
@@ -41,9 +44,18 @@ import {
   MembershipType, 
   PaymentMethod,
   EmergencyContact,
-  MemberRecord 
+  MemberRecord,
+  BeltLevel,
+  StudentLevel 
 } from '../types/members';
-import { createMember, updateMember } from '../services/memberService';
+import { 
+  createMember, 
+  updateMember, 
+  getAllBeltLevels, 
+  getAllStudentLevels,
+  awardBeltToMember,
+  awardStudentLevelToMember 
+} from '../services/memberService';
 import { useAuth } from '../contexts/AuthContext';
 
 interface MemberFormProps {
@@ -55,7 +67,7 @@ interface MemberFormProps {
 const membershipTypes: MembershipType[] = ['Recurring', 'Prepaid'];
 const paymentMethods: PaymentMethod[] = ['ACH', 'Credit Card', 'Cash', 'Check'];
 
-const steps = ['Basic Info', 'Emergency Contact', 'Membership', 'Waiver & Notes'];
+const steps = ['Basic Info', 'Emergency Contact', 'Membership', 'Belt & Levels', 'Waiver & Notes'];
 
 const MemberForm: React.FC<MemberFormProps> = ({ open, onClose, editData }) => {
   const [activeStep, setActiveStep] = useState(0);
@@ -84,16 +96,35 @@ const MemberForm: React.FC<MemberFormProps> = ({ open, onClose, editData }) => {
     tags: [],
   });
 
+  // Belt and Level states
+  const [availableBeltLevels, setAvailableBeltLevels] = useState<BeltLevel[]>([]);
+  const [availableStudentLevels, setAvailableStudentLevels] = useState<StudentLevel[]>([]);
+  const [selectedBelt, setSelectedBelt] = useState<BeltLevel | null>(null);
+  const [selectedStudentLevel, setSelectedStudentLevel] = useState<StudentLevel | null>(null);
+  const [beltAwardDate, setBeltAwardDate] = useState<Date | null>(null);
+  const [studentLevelAwardDate, setStudentLevelAwardDate] = useState<Date | null>(null);
+  const [beltNotes, setBeltNotes] = useState('');
+  const [studentLevelNotes, setStudentLevelNotes] = useState('');
+
   const [newTag, setNewTag] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [dataLoaded, setDataLoaded] = useState(false);
 
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const { user } = useAuth();
 
+  // Load belt and level data only once when dialog opens
   useEffect(() => {
-    if (open && editData) {
+    if (open && !dataLoaded) {
+      loadBeltAndLevelData();
+    }
+  }, [open, dataLoaded]);
+
+  // Separate effect for handling edit data - only runs when editData changes
+  useEffect(() => {
+    if (open && editData && dataLoaded) {
       // Populate form with edit data
       setFormData({
         firstName: editData.firstName,
@@ -120,35 +151,80 @@ const MemberForm: React.FC<MemberFormProps> = ({ open, onClose, editData }) => {
         notes: editData.notes,
         tags: editData.tags || [],
       });
-    } else if (open && !editData) {
+
+      // Set current belt and level if available
+      if (editData.currentBeltLevel && availableBeltLevels.length > 0) {
+        const belt = availableBeltLevels.find(b => b.id === editData.currentBeltLevel?.id);
+        if (belt) setSelectedBelt(belt);
+      }
+      if (editData.currentStudentLevel && availableStudentLevels.length > 0) {
+        const level = availableStudentLevels.find(l => l.id === editData.currentStudentLevel?.id);
+        if (level) setSelectedStudentLevel(level);
+      }
+    } else if (open && !editData && dataLoaded) {
       // Reset form for new member
-      setFormData({
-        firstName: '',
-        lastName: '',
-        email: '',
-        phone: '',
-        emergencyContact: {
-          name: '',
-          relationship: '',
-          phone: '',
-          email: '',
-        },
-        address: {
-          street: '',
-          city: '',
-          state: '',
-          zipCode: '',
-          country: 'USA',
-        },
-        membershipType: 'Recurring',
-        autoRenew: false,
-        waiverSigned: false,
-        notes: '',
-        tags: [],
-      });
+      resetForm();
       setActiveStep(0);
     }
-  }, [open, editData]);
+  }, [editData, dataLoaded, open]); // Remove availableBeltLevels from dependencies
+
+  // Reset form when dialog closes
+  useEffect(() => {
+    if (!open) {
+      resetForm();
+      setActiveStep(0);
+      setDataLoaded(false);
+    }
+  }, [open]);
+
+  const loadBeltAndLevelData = async () => {
+    try {
+      const [belts, levels] = await Promise.all([
+        getAllBeltLevels(),
+        getAllStudentLevels()
+      ]);
+      setAvailableBeltLevels(belts);
+      setAvailableStudentLevels(levels);
+      setDataLoaded(true);
+    } catch (error) {
+      console.error('Error loading belt and level data:', error);
+      setDataLoaded(true); // Mark as loaded even on error to prevent infinite loading
+    }
+  };
+
+  const resetForm = () => {
+    setFormData({
+      firstName: '',
+      lastName: '',
+      email: '',
+      phone: '',
+      emergencyContact: {
+        name: '',
+        relationship: '',
+        phone: '',
+        email: '',
+      },
+      address: {
+        street: '',
+        city: '',
+        state: '',
+        zipCode: '',
+        country: 'USA',
+      },
+      membershipType: 'Recurring',
+      autoRenew: false,
+      waiverSigned: false,
+      notes: '',
+      tags: [],
+    });
+    setSelectedBelt(null);
+    setSelectedStudentLevel(null);
+    setBeltAwardDate(null);
+    setStudentLevelAwardDate(null);
+    setBeltNotes('');
+    setStudentLevelNotes('');
+    setNewTag('');
+  };
 
   const handleInputChange = (field: keyof MemberFormData, value: any) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -197,12 +273,16 @@ const MemberForm: React.FC<MemberFormProps> = ({ open, onClose, editData }) => {
                  formData.emergencyContact.phone.trim());
       case 2: // Membership
         if (formData.membershipType === 'Recurring') {
-          return !!(formData.monthlyAmount && formData.monthlyAmount > 0);
+          // For recurring, monthly amount is optional (can be 0 for trial)
+          return true;
         } else {
+          // For prepaid, either total amount or total credits must be set
           return !!(formData.totalAmount && formData.totalAmount > 0) || 
                  !!(formData.totalCredits && formData.totalCredits > 0);
         }
-      case 3: // Waiver & Notes
+      case 3: // Belt & Levels - optional step
+        return true;
+      case 4: // Waiver & Notes
         return formData.waiverSigned;
       default:
         return true;
@@ -230,7 +310,7 @@ const MemberForm: React.FC<MemberFormProps> = ({ open, onClose, editData }) => {
     }
 
     // Final validation
-    if (!validateStep(3)) {
+    if (!validateStep(4)) {
       setError('Please complete all required fields.');
       return;
     }
@@ -239,10 +319,51 @@ const MemberForm: React.FC<MemberFormProps> = ({ open, onClose, editData }) => {
     setError(null);
 
     try {
+      // Clean the form data - remove undefined values
+      const cleanFormData = {
+        ...formData,
+        monthlyAmount: formData.monthlyAmount || undefined,
+        totalAmount: formData.totalAmount || undefined,
+        totalCredits: formData.totalCredits || undefined,
+        paymentMethod: formData.paymentMethod || undefined,
+        medicalNotes: formData.medicalNotes || undefined,
+        dateOfBirth: formData.dateOfBirth || undefined,
+        emergencyContact: {
+          ...formData.emergencyContact,
+          email: formData.emergencyContact.email || undefined,
+        },
+      };
+
+      let memberId: string;
+
       if (editData) {
-        await updateMember(editData.id, formData, user.uid);
+        await updateMember(editData.id, cleanFormData, user.uid);
+        memberId = editData.id;
       } else {
-        await createMember(formData, user.uid);
+        const newMember = await createMember(cleanFormData, user.uid);
+        memberId = newMember.id;
+      }
+
+      // Award belt if selected (only for new members or if belt changed)
+      if (selectedBelt && beltAwardDate && 
+          (!editData || editData.currentBeltLevel?.id !== selectedBelt.id)) {
+        await awardBeltToMember(
+          memberId,
+          selectedBelt.id,
+          user.uid,
+          beltNotes || undefined
+        );
+      }
+
+      // Award student level if selected (only for new members or if level changed)
+      if (selectedStudentLevel && studentLevelAwardDate && 
+          (!editData || editData.currentStudentLevel?.id !== selectedStudentLevel.id)) {
+        await awardStudentLevelToMember(
+          memberId,
+          selectedStudentLevel.id,
+          user.uid,
+          studentLevelNotes || undefined
+        );
       }
       
       handleClose();
@@ -255,9 +376,6 @@ const MemberForm: React.FC<MemberFormProps> = ({ open, onClose, editData }) => {
   };
 
   const handleClose = () => {
-    setActiveStep(0);
-    setError(null);
-    setNewTag('');
     onClose();
   };
 
@@ -448,7 +566,7 @@ const MemberForm: React.FC<MemberFormProps> = ({ open, onClose, editData }) => {
                 gap: 2 
               }}>
                 <TextField
-                  label="Monthly Amount *"
+                  label="Monthly Amount"
                   type="number"
                   value={formData.monthlyAmount || ''}
                   onChange={(e) => handleInputChange('monthlyAmount', parseFloat(e.target.value) || 0)}
@@ -457,7 +575,7 @@ const MemberForm: React.FC<MemberFormProps> = ({ open, onClose, editData }) => {
                     startAdornment: <InputAdornment position="start">$</InputAdornment>,
                     inputProps: { min: 0, step: 0.01 }
                   }}
-                  error={formData.membershipType === 'Recurring' && (!formData.monthlyAmount || formData.monthlyAmount <= 0)}
+                  helperText="Leave 0 for trial or free membership"
                 />
                 
                 <FormControl size="small">
@@ -520,7 +638,144 @@ const MemberForm: React.FC<MemberFormProps> = ({ open, onClose, editData }) => {
           </Box>
         );
 
-      case 3: // Waiver & Notes
+      case 3: // Belt & Levels
+        return (
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+              <EmojiEventsIcon color="primary" />
+              <Typography variant="h6">Belt & Student Levels (Optional)</Typography>
+            </Box>
+
+            <Paper sx={{ p: 2, bgcolor: 'grey.50' }}>
+              <Typography variant="subtitle2" sx={{ mb: 2, fontWeight: 600 }}>
+                Belt Level
+              </Typography>
+              
+              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)' }, gap: 2, mb: 2 }}>
+                <Autocomplete
+                  value={selectedBelt}
+                  onChange={(_, newValue) => setSelectedBelt(newValue)}
+                  options={availableBeltLevels}
+                  getOptionLabel={(option) => `${option.name} (${option.style})`}
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      label="Belt Level"
+                      size="small"
+                    />
+                  )}
+                  renderOption={(props, option) => (
+                    <Box component="li" {...props}>
+                      <Box>
+                        <Typography variant="body2" fontWeight={500}>
+                          {option.name}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {option.style}
+                        </Typography>
+                      </Box>
+                    </Box>
+                  )}
+                />
+
+                <DatePicker
+                  label="Date Awarded"
+                  value={beltAwardDate}
+                  onChange={(newValue) => setBeltAwardDate(newValue)}
+                  slotProps={{
+                    textField: {
+                      size: "small",
+                      fullWidth: true,
+                    },
+                  }}
+                  disabled={!selectedBelt}
+                />
+              </Box>
+
+              <TextField
+                label="Belt Award Notes"
+                value={beltNotes}
+                onChange={(e) => setBeltNotes(e.target.value)}
+                size="small"
+                fullWidth
+                multiline
+                rows={2}
+                disabled={!selectedBelt}
+                placeholder="Optional notes about belt award..."
+              />
+            </Paper>
+
+            <Paper sx={{ p: 2, bgcolor: 'grey.50' }}>
+              <Typography variant="subtitle2" sx={{ mb: 2, fontWeight: 600 }}>
+                Student Level
+              </Typography>
+              
+              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)' }, gap: 2, mb: 2 }}>
+                <Autocomplete
+                  value={selectedStudentLevel}
+                  onChange={(_, newValue) => setSelectedStudentLevel(newValue)}
+                  options={availableStudentLevels}
+                  getOptionLabel={(option) => option.name}
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      label="Student Level"
+                      size="small"
+                    />
+                  )}
+                  renderOption={(props, option) => (
+                    <Box component="li" {...props}>
+                      <Box>
+                        <Typography variant="body2" fontWeight={500}>
+                          {option.name}
+                        </Typography>
+                        {option.description && (
+                          <Typography variant="caption" color="text.secondary">
+                            {option.description}
+                          </Typography>
+                        )}
+                      </Box>
+                    </Box>
+                  )}
+                />
+
+                <DatePicker
+                  label="Date Awarded"
+                  value={studentLevelAwardDate}
+                  onChange={(newValue) => setStudentLevelAwardDate(newValue)}
+                  slotProps={{
+                    textField: {
+                      size: "small",
+                      fullWidth: true,
+                    },
+                  }}
+                  disabled={!selectedStudentLevel}
+                />
+              </Box>
+
+              <TextField
+                label="Student Level Notes"
+                value={studentLevelNotes}
+                onChange={(e) => setStudentLevelNotes(e.target.value)}
+                size="small"
+                fullWidth
+                multiline
+                rows={2}
+                disabled={!selectedStudentLevel}
+                placeholder="Optional notes about level award..."
+              />
+            </Paper>
+
+            <Alert severity="info">
+              <Typography variant="body2">
+                Belt and student levels are optional and can be added or changed later.
+                Only fill these if the member is starting with an existing belt/level.
+              </Typography>
+            </Alert>
+          </Box>
+        );
+
+      case 4: // Waiver & Notes
         return (
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
@@ -634,9 +889,7 @@ const MemberForm: React.FC<MemberFormProps> = ({ open, onClose, editData }) => {
           alignItems: 'center',
           pb: 1,
         }}>
-          <Typography variant="h6">
-            {editData ? 'Edit Member' : 'Add New Member'}
-          </Typography>
+          {editData ? 'Edit Member' : 'Add New Member'}
           {isMobile && (
             <IconButton onClick={handleClose} size="small" disabled={loading}>
               <CloseIcon />

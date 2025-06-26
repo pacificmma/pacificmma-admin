@@ -1,4 +1,4 @@
-// src/services/memberService.ts
+// src/services/memberService.ts - Fixed and Enhanced
 
 import { db } from './firebase';
 import {
@@ -37,6 +37,25 @@ import {
   PaymentMethod,
 } from '../types/members';
 
+// HELPER FUNCTION TO CLEAN DATA
+const cleanMemberData = (data: any): any => {
+  const cleaned: any = {};
+  
+  Object.keys(data).forEach(key => {
+    const value = data[key];
+    if (value !== undefined) {
+      if (value && typeof value === 'object' && !(value instanceof Date) && !(value instanceof Timestamp)) {
+        // Recursively clean nested objects
+        cleaned[key] = cleanMemberData(value);
+      } else {
+        cleaned[key] = value;
+      }
+    }
+  });
+  
+  return cleaned;
+};
+
 // MEMBER CRUD OPERATIONS
 
 export const createMember = async (
@@ -46,41 +65,44 @@ export const createMember = async (
   try {
     console.log('Creating new member:', formData.firstName, formData.lastName);
 
-    // Convert form data to member data
+    // Convert form data to member data and clean undefined values
     const memberData: MemberData = {
       firstName: formData.firstName,
       lastName: formData.lastName,
       email: formData.email,
       phone: formData.phone,
-      emergencyContact: formData.emergencyContact,
+      emergencyContact: cleanMemberData(formData.emergencyContact),
       dateOfBirth: formData.dateOfBirth ? Timestamp.fromDate(formData.dateOfBirth) : undefined,
-      address: formData.address,
-      membership: {
+      address: formData.address ? cleanMemberData(formData.address) : undefined,
+      membership: cleanMemberData({
         type: formData.membershipType,
         status: 'No Membership' as MemberStatus,
-        monthlyAmount: formData.monthlyAmount,
-        totalAmount: formData.totalAmount,
-        totalCredits: formData.totalCredits,
-        remainingCredits: formData.totalCredits,
-        paymentMethod: formData.paymentMethod,
-        autoRenew: formData.autoRenew,
+        monthlyAmount: formData.monthlyAmount || undefined,
+        totalAmount: formData.totalAmount || undefined,
+        totalCredits: formData.totalCredits || undefined,
+        remainingCredits: formData.totalCredits || undefined,
+        paymentMethod: formData.paymentMethod || undefined,
+        autoRenew: formData.autoRenew || false,
         createdAt: Timestamp.now(),
         updatedAt: Timestamp.now(),
-      },
+      }),
       waiverSigned: formData.waiverSigned,
       waiverDate: formData.waiverSigned ? Timestamp.now() : undefined,
-      medicalNotes: formData.medicalNotes,
+      medicalNotes: formData.medicalNotes || undefined,
       joinDate: Timestamp.now(),
       totalVisits: 0,
       isActive: true,
-      notes: formData.notes,
+      notes: formData.notes || undefined,
       tags: formData.tags || [],
       createdAt: Timestamp.now(),
       updatedAt: Timestamp.now(),
       createdBy,
     };
 
-    const docRef = await addDoc(collection(db, 'users'), memberData);
+    // Clean the entire object
+    const cleanedMemberData = cleanMemberData(memberData);
+
+    const docRef = await addDoc(collection(db, 'users'), cleanedMemberData);
     
     // Log activity
     await logMemberActivity({
@@ -95,7 +117,7 @@ export const createMember = async (
     
     return {
       id: docRef.id,
-      ...memberData,
+      ...cleanedMemberData,
     };
   } catch (error) {
     console.error('Error creating member:', error);
@@ -187,10 +209,10 @@ export const updateMember = async (
     }
 
     // Update membership details if provided
-    if (formData.membershipType || formData.monthlyAmount || formData.totalAmount) {
+    if (formData.membershipType || formData.monthlyAmount !== undefined || formData.totalAmount !== undefined) {
       const currentMember = await getMemberById(memberId);
       if (currentMember) {
-        updateData.membership = {
+        updateData.membership = cleanMemberData({
           ...currentMember.membership,
           type: formData.membershipType || currentMember.membership.type,
           monthlyAmount: formData.monthlyAmount ?? currentMember.membership.monthlyAmount,
@@ -199,11 +221,14 @@ export const updateMember = async (
           paymentMethod: formData.paymentMethod || currentMember.membership.paymentMethod,
           autoRenew: formData.autoRenew ?? currentMember.membership.autoRenew,
           updatedAt: Timestamp.now(),
-        };
+        });
       }
     }
 
-    await updateDoc(memberRef, updateData);
+    // Clean the update data
+    const cleanedUpdateData = cleanMemberData(updateData);
+
+    await updateDoc(memberRef, cleanedUpdateData);
 
     // Log activity
     await logMemberActivity({
@@ -263,7 +288,7 @@ export const updateMembershipStatus = async (
     console.log(`Updating membership status for ${memberId} to ${newStatus}`);
     
     const updateData: any = {
-      'membership?.status': newStatus,
+      'membership.status': newStatus,
       'membership.updatedAt': Timestamp.now(),
       updatedAt: Timestamp.now(),
     };
@@ -359,6 +384,272 @@ export const getMemberStats = async (): Promise<MemberStats> => {
   } catch (error) {
     console.error('Error calculating member stats:', error);
     throw new Error('Failed to calculate member statistics.');
+  }
+};
+
+// BELT AND LEVEL MANAGEMENT
+
+export const createBeltLevel = async (beltData: Omit<BeltLevel, 'id' | 'createdAt' | 'updatedAt'>): Promise<BeltLevel> => {
+  try {
+    console.log('Creating belt level:', beltData);
+    
+    // Validate required fields
+    if (!beltData.name || !beltData.style) {
+      throw new Error('Belt name and style are required');
+    }
+
+    const data = {
+      name: beltData.name.trim(),
+      style: beltData.style.trim(),
+      order: beltData.order || 0,
+      color: beltData.color?.trim() || '',
+      createdAt: Timestamp.now(),
+      updatedAt: Timestamp.now(),
+    };
+
+    const docRef = await addDoc(collection(db, 'beltLevels'), data);
+    
+    console.log('Belt level created successfully:', docRef.id);
+    
+    return {
+      id: docRef.id,
+      ...data,
+    };
+  } catch (error) {
+    console.error('Error creating belt level:', error);
+    throw new Error(error instanceof Error ? error.message : 'Failed to create belt level.');
+  }
+};
+
+export const getAllBeltLevels = async (): Promise<BeltLevel[]> => {
+  try {
+    console.log('Fetching all belt levels...');
+    const beltsRef = collection(db, 'beltLevels');
+    
+    // Simple query first - no complex ordering that might fail
+    const snapshot = await getDocs(beltsRef);
+    
+    console.log(`Found ${snapshot.size} belt level documents`);
+
+    const beltLevels: BeltLevel[] = [];
+    snapshot.forEach((doc) => {
+      const data = doc.data();
+      console.log('Processing belt level document:', doc.id, data);
+      
+      beltLevels.push({
+        id: doc.id,
+        name: data.name || '',
+        style: data.style || '',
+        order: data.order || 0,
+        color: data.color || '',
+        createdAt: data.createdAt,
+        updatedAt: data.updatedAt,
+      } as BeltLevel);
+    });
+
+    // Sort in memory instead of using Firestore orderBy
+    beltLevels.sort((a, b) => {
+      // First sort by style, then by order
+      if (a.style !== b.style) {
+        return a.style.localeCompare(b.style);
+      }
+      return a.order - b.order;
+    });
+
+    console.log(`Successfully loaded ${beltLevels.length} belt levels:`, beltLevels);
+    return beltLevels;
+  } catch (error) {
+    console.error('Error fetching belt levels:', error);
+    // Don't throw error - return empty array to prevent breaking the UI
+    console.log('Returning empty array due to error');
+    return [];
+  }
+};
+
+export const createStudentLevel = async (levelData: Omit<StudentLevel, 'id' | 'createdAt' | 'updatedAt'>): Promise<StudentLevel> => {
+  try {
+    console.log('Creating student level:', levelData);
+    
+    // Validate required fields
+    if (!levelData.name) {
+      throw new Error('Student level name is required');
+    }
+
+    const data = {
+      name: levelData.name.trim(),
+      description: levelData.description?.trim() || '',
+      order: levelData.order || 0,
+      createdAt: Timestamp.now(),
+      updatedAt: Timestamp.now(),
+    };
+
+    const docRef = await addDoc(collection(db, 'studentLevels'), data);
+    
+    console.log('Student level created successfully:', docRef.id);
+    
+    return {
+      id: docRef.id,
+      ...data,
+    };
+  } catch (error) {
+    console.error('Error creating student level:', error);
+    throw new Error(error instanceof Error ? error.message : 'Failed to create student level.');
+  }
+};
+
+export const getAllStudentLevels = async (): Promise<StudentLevel[]> => {
+  try {
+    console.log('Fetching all student levels...');
+    const levelsRef = collection(db, 'studentLevels');
+    
+    // Simple query first - no complex ordering that might fail
+    const snapshot = await getDocs(levelsRef);
+    
+    console.log(`Found ${snapshot.size} student level documents`);
+
+    const studentLevels: StudentLevel[] = [];
+    snapshot.forEach((doc) => {
+      const data = doc.data();
+      console.log('Processing student level document:', doc.id, data);
+      
+      studentLevels.push({
+        id: doc.id,
+        name: data.name || '',
+        description: data.description || '',
+        order: data.order || 0,
+        createdAt: data.createdAt,
+        updatedAt: data.updatedAt,
+      } as StudentLevel);
+    });
+
+    // Sort in memory instead of using Firestore orderBy
+    studentLevels.sort((a, b) => a.order - b.order);
+
+    console.log(`Successfully loaded ${studentLevels.length} student levels:`, studentLevels);
+    return studentLevels;
+  } catch (error) {
+    console.error('Error fetching student levels:', error);
+    // Don't throw error - return empty array to prevent breaking the UI
+    console.log('Returning empty array due to error');
+    return [];
+  }
+};
+
+export const awardBeltToMember = async (
+  memberId: string,
+  beltLevelId: string,
+  awardedBy: string,
+  notes?: string
+): Promise<MemberBeltAward> => {
+  try {
+    const member = await getMemberById(memberId);
+    const beltDoc = await getDoc(doc(db, 'beltLevels', beltLevelId));
+    
+    if (!member || !beltDoc.exists()) {
+      throw new Error('Member or belt level not found');
+    }
+
+    const beltData = beltDoc.data() as BeltLevel;
+
+    const awardData: Omit<MemberBeltAward, 'id'> = {
+      memberId,
+      beltLevelId,
+      beltLevelName: beltData.name,
+      style: beltData.style,
+      dateAwarded: Timestamp.now(),
+      awardedBy,
+      awardedByName: 'Admin', // TODO: Get actual staff name
+      notes,
+      createdAt: Timestamp.now(),
+    };
+
+    const docRef = await addDoc(collection(db, 'memberBeltAwards'), awardData);
+
+    // Update member's current belt level
+    await updateDoc(doc(db, 'users', memberId), {
+      currentBeltLevel: {
+        id: beltLevelId,
+        name: beltData.name,
+        style: beltData.style,
+        dateAwarded: Timestamp.now(),
+      },
+      updatedAt: Timestamp.now(),
+    });
+
+    // Log activity
+    await logMemberActivity({
+      memberId,
+      type: 'belt_award',
+      description: `Awarded ${beltData.name} in ${beltData.style}`,
+      performedBy: awardedBy,
+      performedByName: 'Admin',
+    });
+
+    return {
+      id: docRef.id,
+      ...awardData,
+    };
+  } catch (error) {
+    console.error('Error awarding belt:', error);
+    throw error;
+  }
+};
+
+export const awardStudentLevelToMember = async (
+  memberId: string,
+  studentLevelId: string,
+  awardedBy: string,
+  notes?: string
+): Promise<MemberStudentLevelAward> => {
+  try {
+    const member = await getMemberById(memberId);
+    const levelDoc = await getDoc(doc(db, 'studentLevels', studentLevelId));
+    
+    if (!member || !levelDoc.exists()) {
+      throw new Error('Member or student level not found');
+    }
+
+    const levelData = levelDoc.data() as StudentLevel;
+
+    const awardData: Omit<MemberStudentLevelAward, 'id'> = {
+      memberId,
+      studentLevelId,
+      studentLevelName: levelData.name,
+      dateAwarded: Timestamp.now(),
+      awardedBy,
+      awardedByName: 'Admin', // TODO: Get actual staff name
+      notes,
+      createdAt: Timestamp.now(),
+    };
+
+    const docRef = await addDoc(collection(db, 'memberStudentLevelAwards'), awardData);
+
+    // Update member's current student level
+    await updateDoc(doc(db, 'users', memberId), {
+      currentStudentLevel: {
+        id: studentLevelId,
+        name: levelData.name,
+        dateAwarded: Timestamp.now(),
+      },
+      updatedAt: Timestamp.now(),
+    });
+
+    // Log activity
+    await logMemberActivity({
+      memberId,
+      type: 'level_award',
+      description: `Awarded student level: ${levelData.name}`,
+      performedBy: awardedBy,
+      performedByName: 'Admin',
+    });
+
+    return {
+      id: docRef.id,
+      ...awardData,
+    };
+  } catch (error) {
+    console.error('Error awarding student level:', error);
+    throw error;
   }
 };
 
@@ -473,109 +764,6 @@ export const checkInMember = async (
   }
 };
 
-// BELT AND LEVEL MANAGEMENT
-
-export const createBeltLevel = async (beltData: Omit<BeltLevel, 'id' | 'createdAt' | 'updatedAt'>): Promise<BeltLevel> => {
-  try {
-    const data = {
-      ...beltData,
-      createdAt: Timestamp.now(),
-      updatedAt: Timestamp.now(),
-    };
-
-    const docRef = await addDoc(collection(db, 'beltLevels'), data);
-    
-    return {
-      id: docRef.id,
-      ...data,
-    };
-  } catch (error) {
-    console.error('Error creating belt level:', error);
-    throw new Error('Failed to create belt level.');
-  }
-};
-
-export const getAllBeltLevels = async (): Promise<BeltLevel[]> => {
-  try {
-    const beltsRef = collection(db, 'beltLevels');
-    const q = query(beltsRef, orderBy('style', 'asc'), orderBy('order', 'asc'));
-    const snapshot = await getDocs(q);
-
-    const beltLevels: BeltLevel[] = [];
-    snapshot.forEach((doc) => {
-      beltLevels.push({
-        id: doc.id,
-        ...doc.data(),
-      } as BeltLevel);
-    });
-
-    return beltLevels;
-  } catch (error) {
-    console.error('Error fetching belt levels:', error);
-    throw new Error('Failed to load belt levels.');
-  }
-};
-
-export const awardBeltToMember = async (
-  memberId: string,
-  beltLevelId: string,
-  awardedBy: string,
-  notes?: string
-): Promise<MemberBeltAward> => {
-  try {
-    const member = await getMemberById(memberId);
-    const beltDoc = await getDoc(doc(db, 'beltLevels', beltLevelId));
-    
-    if (!member || !beltDoc.exists()) {
-      throw new Error('Member or belt level not found');
-    }
-
-    const beltData = beltDoc.data() as BeltLevel;
-
-    const awardData: Omit<MemberBeltAward, 'id'> = {
-      memberId,
-      beltLevelId,
-      beltLevelName: beltData.name,
-      style: beltData.style,
-      dateAwarded: Timestamp.now(),
-      awardedBy,
-      awardedByName: 'Admin', // TODO: Get actual staff name
-      notes,
-      createdAt: Timestamp.now(),
-    };
-
-    const docRef = await addDoc(collection(db, 'memberBeltAwards'), awardData);
-
-    // Update member's current belt level
-    await updateDoc(doc(db, 'users', memberId), {
-      currentBeltLevel: {
-        id: beltLevelId,
-        name: beltData.name,
-        style: beltData.style,
-        dateAwarded: Timestamp.now(),
-      },
-      updatedAt: Timestamp.now(),
-    });
-
-    // Log activity
-    await logMemberActivity({
-      memberId,
-      type: 'belt_award',
-      description: `Awarded ${beltData.name} in ${beltData.style}`,
-      performedBy: awardedBy,
-      performedByName: 'Admin',
-    });
-
-    return {
-      id: docRef.id,
-      ...awardData,
-    };
-  } catch (error) {
-    console.error('Error awarding belt:', error);
-    throw error;
-  }
-};
-
 export default {
   createMember,
   getAllMembers,
@@ -589,5 +777,8 @@ export default {
   checkInMember,
   createBeltLevel,
   getAllBeltLevels,
+  createStudentLevel,
+  getAllStudentLevels,
   awardBeltToMember,
+  awardStudentLevelToMember,
 };
