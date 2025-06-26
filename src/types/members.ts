@@ -1,4 +1,4 @@
-// src/types/members.ts - Cleaned up and fixed
+// src/types/members.ts - Updated with Firebase Auth integration
 
 import { Timestamp } from 'firebase/firestore';
 
@@ -146,6 +146,9 @@ export interface MemberData {
   currentBeltLevel?: CurrentBeltLevel;
   currentStudentLevel?: CurrentStudentLevel;
   
+  // Firebase Auth integration
+  authUid?: string; // Link to Firebase Auth user UID
+  
   // System fields
   isActive: boolean;
   notes?: string;
@@ -153,6 +156,10 @@ export interface MemberData {
   createdAt: Timestamp;
   updatedAt: Timestamp;
   createdBy: string; // Staff member who created this record
+  
+  // Deactivation tracking
+  deactivatedAt?: Timestamp;
+  deactivatedBy?: string;
 }
 
 // Full member record (includes ID)
@@ -181,6 +188,28 @@ export interface MemberFormData {
   tags?: string[];
 }
 
+// Member creation result (includes generated password)
+export interface MemberCreationResult {
+  memberRecord: MemberRecord;
+  password: string; // Generated password for customer portal
+}
+
+// Member profile for customer app access control
+export interface MemberProfile {
+  id: string; // Same as authUid
+  type: 'member'; // Distinguished from 'staff'
+  role: 'customer';
+  firstName: string;
+  lastName: string;
+  email: string;
+  isActive: boolean;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+  createdBy: string;
+  deactivatedAt?: Timestamp;
+  deactivatedBy?: string;
+}
+
 // Member statistics for dashboard
 export interface MemberStats {
   totalMembers: number;
@@ -197,7 +226,7 @@ export interface MemberStats {
 export interface MemberActivity {
   id: string;
   memberId: string;
-  type: 'check_in' | 'payment' | 'membership_change' | 'belt_award' | 'level_award' | 'note_added';
+  type: 'check_in' | 'payment' | 'membership_change' | 'belt_award' | 'level_award' | 'note_added' | 'password_reset';
   description: string;
   details?: any;
   performedBy: string;
@@ -236,6 +265,20 @@ export interface MemberPayment {
   receiptNumber?: string;
   notes?: string;
   createdAt: Timestamp;
+}
+
+// Password reset request
+export interface PasswordResetRequest {
+  id: string;
+  memberId: string;
+  memberEmail: string;
+  memberName: string;
+  requestedBy: string;
+  requestedByName: string;
+  requestedAt: Timestamp;
+  newPassword: string; // Temporary - should be sent via secure channel
+  used: boolean;
+  usedAt?: Timestamp;
 }
 
 export default MemberData;

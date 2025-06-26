@@ -1,972 +1,928 @@
-// src/components/MemberForm.tsx - Fixed character deletion issue
+// src/components/MemberTable.tsx - Enhanced with confirmation dialogs and status updates
 
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
+  Paper,
+  TableContainer,
+  Typography,
+  CircularProgress,
+  Box,
+  useTheme,
+  useMediaQuery,
+  Card,
+  CardContent,
+  Chip,
+  IconButton,
   Dialog,
   DialogTitle,
   DialogContent,
   DialogActions,
-  TextField,
   Button,
-  Box,
-  useMediaQuery,
-  useTheme,
-  IconButton,
   Alert,
-  Typography,
+  Avatar,
+  TextField,
+  InputAdornment,
   FormControl,
   InputLabel,
   Select,
   MenuItem,
-  FormControlLabel,
-  Checkbox,
+  Tabs,
+  Tab,
+  Tooltip,
+  Menu,
+  MenuItem as MenuItemComponent,
   Divider,
-  Chip,
-  InputAdornment,
-  Stepper,
-  Step,
-  StepLabel,
-  Paper,
-  Autocomplete,
 } from '@mui/material';
-import CloseIcon from '@mui/icons-material/Close';
+import DeleteIcon from '@mui/icons-material/Delete';
+import EditIcon from '@mui/icons-material/Edit';
 import PersonIcon from '@mui/icons-material/Person';
-import ContactEmergencyIcon from '@mui/icons-material/ContactEmergency';
+import PhoneIcon from '@mui/icons-material/Phone';
+import EmailIcon from '@mui/icons-material/Email';
+import LocationOnIcon from '@mui/icons-material/LocationOn';
 import CreditCardIcon from '@mui/icons-material/CreditCard';
-import GavelIcon from '@mui/icons-material/Gavel';
-import EmojiEventsIcon from '@mui/icons-material/EmojiEvents';
-import SchoolIcon from '@mui/icons-material/School';
-import { DatePicker } from '@mui/x-date-pickers';
-import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
-import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
+import MoreVertIcon from '@mui/icons-material/MoreVert';
+import SearchIcon from '@mui/icons-material/Search';
+import FilterListIcon from '@mui/icons-material/FilterList';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import PauseCircleIcon from '@mui/icons-material/PauseCircle';
+import ErrorIcon from '@mui/icons-material/Error';
+import PersonOffIcon from '@mui/icons-material/PersonOff';
+import WarningIcon from '@mui/icons-material/Warning';
+import { format } from 'date-fns';
 import { 
-  MemberFormData, 
-  MembershipType, 
-  PaymentMethod,
-  EmergencyContact,
-  MemberRecord,
-  BeltLevel,
-  StudentLevel 
+  MemberRecord, 
+  MemberStatus,
+  MembershipType 
 } from '../types/members';
 import { 
-  createMember, 
-  updateMember, 
-  getAllBeltLevels, 
-  getAllStudentLevels,
-  awardBeltToMember,
-  awardStudentLevelToMember 
+  getAllMembers, 
+  deleteMember, 
+  updateMembershipStatus 
 } from '../services/memberService';
-import { useAuth } from '../contexts/AuthContext';
+import { useRoleControl } from '../hooks/useRoleControl';
 
-interface MemberFormProps {
-  open: boolean;
-  onClose: () => void;
-  editData?: MemberRecord | null;
+interface MemberTableProps {
+  refreshTrigger?: number;
+  onEdit: (memberData: MemberRecord) => void;
+  onDataLoaded?: (data: { memberList: MemberRecord[] }) => void;
 }
 
-const membershipTypes: MembershipType[] = ['Recurring', 'Prepaid'];
-const paymentMethods: PaymentMethod[] = ['ACH', 'Credit Card', 'Cash', 'Check'];
-
-const steps = ['Basic Info', 'Emergency Contact', 'Membership', 'Belt & Levels', 'Waiver & Notes'];
-
-const MemberForm: React.FC<MemberFormProps> = ({ open, onClose, editData }) => {
-  const [activeStep, setActiveStep] = useState(0);
-  const [formData, setFormData] = useState<MemberFormData>({
-    firstName: '',
-    lastName: '',
-    email: '',
-    phone: '',
-    emergencyContact: {
-      name: '',
-      relationship: '',
-      phone: '',
-      email: '',
-    },
-    address: {
-      street: '',
-      city: '',
-      state: '',
-      zipCode: '',
-      country: 'USA',
-    },
-    membershipType: 'Recurring',
-    autoRenew: false,
-    waiverSigned: false,
-    notes: '',
-    tags: [],
-  });
-
-  // Belt and Level states
-  const [availableBeltLevels, setAvailableBeltLevels] = useState<BeltLevel[]>([]);
-  const [availableStudentLevels, setAvailableStudentLevels] = useState<StudentLevel[]>([]);
-  const [selectedBelt, setSelectedBelt] = useState<BeltLevel | null>(null);
-  const [selectedStudentLevel, setSelectedStudentLevel] = useState<StudentLevel | null>(null);
-  const [beltAwardDate, setBeltAwardDate] = useState<Date | null>(null);
-  const [studentLevelAwardDate, setStudentLevelAwardDate] = useState<Date | null>(null);
-  const [beltNotes, setBeltNotes] = useState('');
-  const [studentLevelNotes, setStudentLevelNotes] = useState('');
-
-  const [newTag, setNewTag] = useState('');
-  const [loading, setLoading] = useState(false);
+const MemberTable: React.FC<MemberTableProps> = ({ 
+  refreshTrigger, 
+  onEdit, 
+  onDataLoaded 
+}) => {
+  const [memberList, setMemberList] = useState<MemberRecord[]>([]);
+  const [filteredMembers, setFilteredMembers] = useState<MemberRecord[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [deleteLoading, setDeleteLoading] = useState<string | null>(null);
+  const [statusLoading, setStatusLoading] = useState<string | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [statusDialogOpen, setStatusDialogOpen] = useState(false);
+  const [memberToDelete, setMemberToDelete] = useState<MemberRecord | null>(null);
+  const [memberToUpdate, setMemberToUpdate] = useState<MemberRecord | null>(null);
+  const [newStatus, setNewStatus] = useState<MemberStatus>('No Membership');
   const [error, setError] = useState<string | null>(null);
-  const [dataLoaded, setDataLoaded] = useState(false);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  
+  // Filters and search
+  const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'all' | MemberStatus>('all');
+  const [membershipTypeFilter, setMembershipTypeFilter] = useState<'all' | MembershipType>('all');
+  const [tabValue, setTabValue] = useState(0);
+  
+  // Menu state
+  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
+  const [selectedMember, setSelectedMember] = useState<MemberRecord | null>(null);
 
   const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
-  const { user } = useAuth();
+  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
+  const { isAdmin, userData } = useRoleControl();
 
-  // Load belt and level data only once when dialog opens
-  useEffect(() => {
-    if (open && !dataLoaded) {
-      loadBeltAndLevelData();
-    }
-  }, [open, dataLoaded]);
-
-  // Separate effect for handling edit data - only runs when editData changes
-  useEffect(() => {
-    if (open && editData && dataLoaded) {
-      // Populate form with edit data
-      setFormData({
-        firstName: editData.firstName,
-        lastName: editData.lastName,
-        email: editData.email,
-        phone: editData.phone,
-        emergencyContact: editData.emergencyContact,
-        dateOfBirth: editData.dateOfBirth?.toDate(),
-        address: editData.address || {
-          street: '',
-          city: '',
-          state: '',
-          zipCode: '',
-          country: 'USA',
-        },
-        membershipType: editData.membership.type,
-        monthlyAmount: editData.membership.monthlyAmount,
-        totalAmount: editData.membership.totalAmount,
-        totalCredits: editData.membership.totalCredits,
-        paymentMethod: editData.membership.paymentMethod,
-        autoRenew: editData.membership.autoRenew,
-        waiverSigned: editData.waiverSigned,
-        medicalNotes: editData.medicalNotes,
-        notes: editData.notes,
-        tags: editData.tags || [],
-      });
-
-      // Set current belt and level if available
-      if (editData.currentBeltLevel && availableBeltLevels.length > 0) {
-        const belt = availableBeltLevels.find(b => b.id === editData.currentBeltLevel?.id);
-        if (belt) setSelectedBelt(belt);
-      }
-      if (editData.currentStudentLevel && availableStudentLevels.length > 0) {
-        const level = availableStudentLevels.find(l => l.id === editData.currentStudentLevel?.id);
-        if (level) setSelectedStudentLevel(level);
-      }
-    } else if (open && !editData && dataLoaded) {
-      // Reset form for new member
-      resetForm();
-      setActiveStep(0);
-    }
-  }, [editData, dataLoaded, open]); // Remove availableBeltLevels from dependencies
-
-  // Reset form when dialog closes
-  useEffect(() => {
-    if (!open) {
-      resetForm();
-      setActiveStep(0);
-      setDataLoaded(false);
-    }
-  }, [open]);
-
-  const loadBeltAndLevelData = async () => {
+  const fetchMembers = async () => {
     try {
-      const [belts, levels] = await Promise.all([
-        getAllBeltLevels(),
-        getAllStudentLevels()
-      ]);
-      setAvailableBeltLevels(belts);
-      setAvailableStudentLevels(levels);
-      setDataLoaded(true);
-    } catch (error) {
-      console.error('Error loading belt and level data:', error);
-      setDataLoaded(true); // Mark as loaded even on error to prevent infinite loading
-    }
-  };
-
-  const resetForm = () => {
-    setFormData({
-      firstName: '',
-      lastName: '',
-      email: '',
-      phone: '',
-      emergencyContact: {
-        name: '',
-        relationship: '',
-        phone: '',
-        email: '',
-      },
-      address: {
-        street: '',
-        city: '',
-        state: '',
-        zipCode: '',
-        country: 'USA',
-      },
-      membershipType: 'Recurring',
-      autoRenew: false,
-      waiverSigned: false,
-      notes: '',
-      tags: [],
-    });
-    setSelectedBelt(null);
-    setSelectedStudentLevel(null);
-    setBeltAwardDate(null);
-    setStudentLevelAwardDate(null);
-    setBeltNotes('');
-    setStudentLevelNotes('');
-    setNewTag('');
-  };
-
-  const handleInputChange = (field: keyof MemberFormData, value: any) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
-    if (error) setError(null);
-  };
-
-  const handleEmergencyContactChange = (field: keyof EmergencyContact, value: string) => {
-    setFormData(prev => ({
-      ...prev,
-      emergencyContact: {
-        ...prev.emergencyContact,
-        [field]: value,
-      },
-    }));
-  };
-
-  const handleAddressChange = (field: string, value: string) => {
-    setFormData(prev => ({
-      ...prev,
-      address: {
-        ...prev.address,
-        [field]: value,
-      },
-    }));
-  };
-
-  const handleAddTag = () => {
-    if (newTag.trim() && !formData.tags?.includes(newTag.trim())) {
-      handleInputChange('tags', [...(formData.tags || []), newTag.trim()]);
-      setNewTag('');
-    }
-  };
-
-  const handleRemoveTag = (tagToRemove: string) => {
-    handleInputChange('tags', formData.tags?.filter(tag => tag !== tagToRemove) || []);
-  };
-
-  const validateStep = (step: number): boolean => {
-    switch (step) {
-      case 0: // Basic Info
-        return !!(formData.firstName.trim() && formData.lastName.trim() && 
-                 formData.email.trim() && formData.phone.trim());
-      case 1: // Emergency Contact
-        return !!(formData.emergencyContact.name.trim() && 
-                 formData.emergencyContact.relationship.trim() && 
-                 formData.emergencyContact.phone.trim());
-      case 2: // Membership
-        if (formData.membershipType === 'Recurring') {
-          // For recurring, monthly amount is optional (can be 0 for trial)
-          return true;
-        } else {
-          // For prepaid, either total amount or total credits must be set
-          return !!(formData.totalAmount && formData.totalAmount > 0) || 
-                 !!(formData.totalCredits && formData.totalCredits > 0);
-        }
-      case 3: // Belt & Levels - optional step
-        return true;
-      case 4: // Waiver & Notes
-        return formData.waiverSigned;
-      default:
-        return true;
-    }
-  };
-
-  const handleNext = () => {
-    if (validateStep(activeStep)) {
-      setActiveStep(prev => prev + 1);
+      setLoading(true);
       setError(null);
-    } else {
-      setError('Please complete all required fields in this step.');
-    }
-  };
-
-  const handleBack = () => {
-    setActiveStep(prev => prev - 1);
-    setError(null);
-  };
-
-  const handleSubmit = async () => {
-    if (!user) {
-      setError('You must be logged in to create members.');
-      return;
-    }
-
-    // Final validation
-    if (!validateStep(4)) {
-      setError('Please complete all required fields.');
-      return;
-    }
-
-    setLoading(true);
-    setError(null);
-
-    try {
-      // Clean the form data - remove undefined values
-      const cleanFormData = {
-        ...formData,
-        monthlyAmount: formData.monthlyAmount || undefined,
-        totalAmount: formData.totalAmount || undefined,
-        totalCredits: formData.totalCredits || undefined,
-        paymentMethod: formData.paymentMethod || undefined,
-        medicalNotes: formData.medicalNotes || undefined,
-        dateOfBirth: formData.dateOfBirth || undefined,
-        emergencyContact: {
-          ...formData.emergencyContact,
-          email: formData.emergencyContact.email || undefined,
-        },
-      };
-
-      let memberId: string;
-
-      if (editData) {
-        await updateMember(editData.id, cleanFormData, user.uid);
-        memberId = editData.id;
-      } else {
-        const newMember = await createMember(cleanFormData, user.uid);
-        memberId = newMember.id;
-      }
-
-      // Award belt if selected (only for new members or if belt changed)
-      if (selectedBelt && beltAwardDate && 
-          (!editData || editData.currentBeltLevel?.id !== selectedBelt.id)) {
-        await awardBeltToMember(
-          memberId,
-          selectedBelt.id,
-          user.uid,
-          beltNotes || undefined
-        );
-      }
-
-      // Award student level if selected (only for new members or if level changed)
-      if (selectedStudentLevel && studentLevelAwardDate && 
-          (!editData || editData.currentStudentLevel?.id !== selectedStudentLevel.id)) {
-        await awardStudentLevelToMember(
-          memberId,
-          selectedStudentLevel.id,
-          user.uid,
-          studentLevelNotes || undefined
-        );
+      
+      console.log('Fetching members...');
+      const members = await getAllMembers();
+      
+      setMemberList(members);
+      
+      // Pass data to parent component for stats calculation
+      if (onDataLoaded) {
+        onDataLoaded({ memberList: members });
       }
       
-      handleClose();
+      console.log(`Loaded ${members.length} members`);
     } catch (err: any) {
-      console.error('Error saving member:', err);
-      setError(err.message || 'An error occurred while saving the member');
+      console.error('Error loading members:', err);
+      setError(err.message || 'An error occurred while loading members');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleClose = () => {
-    onClose();
+  useEffect(() => {
+    fetchMembers();
+  }, [refreshTrigger]);
+
+  // Clear success message after 3 seconds
+  useEffect(() => {
+    if (successMessage) {
+      const timer = setTimeout(() => setSuccessMessage(null), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [successMessage]);
+
+  // Filter members based on search term and filters
+  useEffect(() => {
+    let filtered = memberList;
+
+    // Search filter
+    if (searchTerm) {
+      const term = searchTerm.toLowerCase();
+      filtered = filtered.filter(member =>
+        (member?.firstName || '').toLowerCase().includes(term) ||
+        (member?.lastName || '').toLowerCase().includes(term) ||
+        (member?.email || '').toLowerCase().includes(term) ||
+        (member?.phone || '').includes(term)
+      );
+    }
+
+    // Status filter
+    if (statusFilter !== 'all') {
+      filtered = filtered.filter(member => member?.membership?.status === statusFilter);
+    }
+
+    // Membership type filter
+    if (membershipTypeFilter !== 'all') {
+      filtered = filtered.filter(member => member?.membership?.type === membershipTypeFilter);
+    }
+
+    // Tab filter
+    switch (tabValue) {
+      case 1: // Active
+        filtered = filtered.filter(member => member?.membership?.status === 'Active');
+        break;
+      case 2: // Inactive
+        filtered = filtered.filter(member => {
+          const status = member?.membership?.status;
+          return status === 'Paused' || status === 'Overdue' || status === 'No Membership' || !status;
+        });
+        break;
+      // case 0 is 'All' - no additional filtering
+    }
+
+    setFilteredMembers(filtered);
+  }, [memberList, searchTerm, statusFilter, membershipTypeFilter, tabValue]);
+
+  const handleDeleteClick = (member: MemberRecord) => {
+    setMemberToDelete(member);
+    setDeleteDialogOpen(true);
+    handleMenuClose();
   };
 
-  const renderStepContent = (step: number) => {
-    switch (step) {
-      case 0: // Basic Info
-        return (
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
-              <PersonIcon color="primary" />
-              <Typography variant="h6">Basic Information</Typography>
-            </Box>
+  const handleDeleteConfirm = async () => {
+    if (!memberToDelete || !userData) return;
 
-            <Box sx={{ 
-              display: 'grid', 
-              gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)' }, 
-              gap: 2 
-            }}>
-              <TextField
-                label="First Name *"
-                value={formData.firstName}
-                onChange={(e) => handleInputChange('firstName', e.target.value)}
-                size="small"
-                error={!formData.firstName.trim() && formData.firstName !== ''}
-              />
-              <TextField
-                label="Last Name *"
-                value={formData.lastName}
-                onChange={(e) => handleInputChange('lastName', e.target.value)}
-                size="small"
-                error={!formData.lastName.trim() && formData.lastName !== ''}
-              />
-            </Box>
-
-            <Box sx={{ 
-              display: 'grid', 
-              gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)' }, 
-              gap: 2 
-            }}>
-              <TextField
-                label="Email *"
-                type="email"
-                value={formData.email}
-                onChange={(e) => handleInputChange('email', e.target.value)}
-                size="small"
-                error={!formData.email.trim() && formData.email !== ''}
-              />
-              <TextField
-                label="Phone *"
-                value={formData.phone}
-                onChange={(e) => handleInputChange('phone', e.target.value)}
-                size="small"
-                error={!formData.phone.trim() && formData.phone !== ''}
-              />
-            </Box>
-
-            <DatePicker
-              label="Date of Birth"
-              value={formData.dateOfBirth || null}
-              onChange={(newValue) => handleInputChange('dateOfBirth', newValue)}
-              slotProps={{
-                textField: {
-                  size: "small",
-                  fullWidth: true,
-                },
-              }}
-            />
-
-            <Divider />
-
-            <Typography variant="subtitle1" fontWeight={600}>Address (Optional)</Typography>
-            
-            <TextField
-              label="Street Address"
-              value={formData.address?.street || ''}
-              onChange={(e) => handleAddressChange('street', e.target.value)}
-              size="small"
-              fullWidth
-            />
-
-            <Box sx={{ 
-              display: 'grid', 
-              gridTemplateColumns: { xs: '1fr', sm: 'repeat(3, 1fr)' }, 
-              gap: 2 
-            }}>
-              <TextField
-                label="City"
-                value={formData.address?.city || ''}
-                onChange={(e) => handleAddressChange('city', e.target.value)}
-                size="small"
-              />
-              <TextField
-                label="State"
-                value={formData.address?.state || ''}
-                onChange={(e) => handleAddressChange('state', e.target.value)}
-                size="small"
-              />
-              <TextField
-                label="ZIP Code"
-                value={formData.address?.zipCode || ''}
-                onChange={(e) => handleAddressChange('zipCode', e.target.value)}
-                size="small"
-              />
-            </Box>
-          </Box>
-        );
-
-      case 1: // Emergency Contact
-        return (
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
-              <ContactEmergencyIcon color="primary" />
-              <Typography variant="h6">Emergency Contact</Typography>
-            </Box>
-
-            <Box sx={{ 
-              display: 'grid', 
-              gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)' }, 
-              gap: 2 
-            }}>
-              <TextField
-                label="Contact Name *"
-                value={formData.emergencyContact.name}
-                onChange={(e) => handleEmergencyContactChange('name', e.target.value)}
-                size="small"
-                error={!formData.emergencyContact.name.trim() && formData.emergencyContact.name !== ''}
-              />
-              <TextField
-                label="Relationship *"
-                value={formData.emergencyContact.relationship}
-                onChange={(e) => handleEmergencyContactChange('relationship', e.target.value)}
-                size="small"
-                placeholder="e.g., Spouse, Parent, Sibling"
-                error={!formData.emergencyContact.relationship.trim() && formData.emergencyContact.relationship !== ''}
-              />
-            </Box>
-
-            <Box sx={{ 
-              display: 'grid', 
-              gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)' }, 
-              gap: 2 
-            }}>
-              <TextField
-                label="Phone *"
-                value={formData.emergencyContact.phone}
-                onChange={(e) => handleEmergencyContactChange('phone', e.target.value)}
-                size="small"
-                error={!formData.emergencyContact.phone.trim() && formData.emergencyContact.phone !== ''}
-              />
-              <TextField
-                label="Email"
-                type="email"
-                value={formData.emergencyContact.email || ''}
-                onChange={(e) => handleEmergencyContactChange('email', e.target.value)}
-                size="small"
-              />
-            </Box>
-          </Box>
-        );
-
-      case 2: // Membership
-        return (
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
-              <CreditCardIcon color="primary" />
-              <Typography variant="h6">Membership Details</Typography>
-            </Box>
-
-            <FormControl size="small">
-              <InputLabel>Membership Type *</InputLabel>
-              <Select
-                value={formData.membershipType}
-                label="Membership Type *"
-                onChange={(e) => handleInputChange('membershipType', e.target.value as MembershipType)}
-              >
-                {membershipTypes.map((type) => (
-                  <MenuItem key={type} value={type}>
-                    {type}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-
-            {formData.membershipType === 'Recurring' ? (
-              <Box sx={{ 
-                display: 'grid', 
-                gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)' }, 
-                gap: 2 
-              }}>
-                <TextField
-                  label="Monthly Amount"
-                  type="number"
-                  value={formData.monthlyAmount || ''}
-                  onChange={(e) => handleInputChange('monthlyAmount', parseFloat(e.target.value) || 0)}
-                  size="small"
-                  InputProps={{
-                    startAdornment: <InputAdornment position="start">$</InputAdornment>,
-                    inputProps: { min: 0, step: 0.01 }
-                  }}
-                  helperText="Leave 0 for trial or free membership"
-                />
-                
-                <FormControl size="small">
-                  <InputLabel>Payment Method</InputLabel>
-                  <Select
-                    value={formData.paymentMethod || ''}
-                    label="Payment Method"
-                    onChange={(e) => handleInputChange('paymentMethod', e.target.value as PaymentMethod)}
-                  >
-                    {paymentMethods.map((method) => (
-                      <MenuItem key={method} value={method}>
-                        {method}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              </Box>
-            ) : (
-              <Box sx={{ 
-                display: 'grid', 
-                gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)' }, 
-                gap: 2 
-              }}>
-                <TextField
-                  label="Total Amount"
-                  type="number"
-                  value={formData.totalAmount || ''}
-                  onChange={(e) => handleInputChange('totalAmount', parseFloat(e.target.value) || 0)}
-                  size="small"
-                  InputProps={{
-                    startAdornment: <InputAdornment position="start">$</InputAdornment>,
-                    inputProps: { min: 0, step: 0.01 }
-                  }}
-                  helperText="For prepaid membership periods"
-                />
-                
-                <TextField
-                  label="Total Credits"
-                  type="number"
-                  value={formData.totalCredits || ''}
-                  onChange={(e) => handleInputChange('totalCredits', parseInt(e.target.value) || 0)}
-                  size="small"
-                  InputProps={{
-                    inputProps: { min: 0, step: 1 }
-                  }}
-                  helperText="For credit-based memberships"
-                />
-              </Box>
-            )}
-
-            <FormControlLabel
-              control={
-                <Checkbox
-                  checked={formData.autoRenew}
-                  onChange={(e) => handleInputChange('autoRenew', e.target.checked)}
-                />
-              }
-              label="Auto-renew membership"
-            />
-          </Box>
-        );
-
-      case 3: // Belt & Levels
-        return (
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
-              <EmojiEventsIcon color="primary" />
-              <Typography variant="h6">Belt & Student Levels (Optional)</Typography>
-            </Box>
-
-            <Paper sx={{ p: 2, bgcolor: 'grey.50' }}>
-              <Typography variant="subtitle2" sx={{ mb: 2, fontWeight: 600 }}>
-                Belt Level
-              </Typography>
-              
-              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)' }, gap: 2, mb: 2 }}>
-                <Autocomplete
-                  value={selectedBelt}
-                  onChange={(_, newValue) => setSelectedBelt(newValue)}
-                  options={availableBeltLevels}
-                  getOptionLabel={(option) => `${option.name} (${option.style})`}
-                  renderInput={(params) => (
-                    <TextField
-                      {...params}
-                      label="Belt Level"
-                      size="small"
-                    />
-                  )}
-                  renderOption={(props, option) => (
-                    <Box component="li" {...props}>
-                      <Box>
-                        <Typography variant="body2" fontWeight={500}>
-                          {option.name}
-                        </Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          {option.style}
-                        </Typography>
-                      </Box>
-                    </Box>
-                  )}
-                />
-
-                <DatePicker
-                  label="Date Awarded"
-                  value={beltAwardDate}
-                  onChange={(newValue) => setBeltAwardDate(newValue)}
-                  slotProps={{
-                    textField: {
-                      size: "small",
-                      fullWidth: true,
-                    },
-                  }}
-                  disabled={!selectedBelt}
-                />
-              </Box>
-
-              <TextField
-                label="Belt Award Notes"
-                value={beltNotes}
-                onChange={(e) => setBeltNotes(e.target.value)}
-                size="small"
-                fullWidth
-                multiline
-                rows={2}
-                disabled={!selectedBelt}
-                placeholder="Optional notes about belt award..."
-              />
-            </Paper>
-
-            <Paper sx={{ p: 2, bgcolor: 'grey.50' }}>
-              <Typography variant="subtitle2" sx={{ mb: 2, fontWeight: 600 }}>
-                Student Level
-              </Typography>
-              
-              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)' }, gap: 2, mb: 2 }}>
-                <Autocomplete
-                  value={selectedStudentLevel}
-                  onChange={(_, newValue) => setSelectedStudentLevel(newValue)}
-                  options={availableStudentLevels}
-                  getOptionLabel={(option) => option.name}
-                  renderInput={(params) => (
-                    <TextField
-                      {...params}
-                      label="Student Level"
-                      size="small"
-                    />
-                  )}
-                  renderOption={(props, option) => (
-                    <Box component="li" {...props}>
-                      <Box>
-                        <Typography variant="body2" fontWeight={500}>
-                          {option.name}
-                        </Typography>
-                        {option.description && (
-                          <Typography variant="caption" color="text.secondary">
-                            {option.description}
-                          </Typography>
-                        )}
-                      </Box>
-                    </Box>
-                  )}
-                />
-
-                <DatePicker
-                  label="Date Awarded"
-                  value={studentLevelAwardDate}
-                  onChange={(newValue) => setStudentLevelAwardDate(newValue)}
-                  slotProps={{
-                    textField: {
-                      size: "small",
-                      fullWidth: true,
-                    },
-                  }}
-                  disabled={!selectedStudentLevel}
-                />
-              </Box>
-
-              <TextField
-                label="Student Level Notes"
-                value={studentLevelNotes}
-                onChange={(e) => setStudentLevelNotes(e.target.value)}
-                size="small"
-                fullWidth
-                multiline
-                rows={2}
-                disabled={!selectedStudentLevel}
-                placeholder="Optional notes about level award..."
-              />
-            </Paper>
-
-            <Alert severity="info">
-              <Typography variant="body2">
-                Belt and student levels are optional and can be added or changed later.
-                Only fill these if the member is starting with an existing belt/level.
-              </Typography>
-            </Alert>
-          </Box>
-        );
-
-      case 4: // Waiver & Notes
-        return (
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
-              <GavelIcon color="primary" />
-              <Typography variant="h6">Waiver & Additional Information</Typography>
-            </Box>
-
-            <Paper sx={{ p: 2, bgcolor: 'grey.50' }}>
-              <FormControlLabel
-                control={
-                  <Checkbox
-                    checked={formData.waiverSigned}
-                    onChange={(e) => handleInputChange('waiverSigned', e.target.checked)}
-                    color="primary"
-                  />
-                }
-                label={
-                  <Typography variant="body2">
-                    <strong>Waiver Signed *</strong>
-                    <br />
-                    Member has read, understood, and signed the liability waiver
-                  </Typography>
-                }
-              />
-            </Paper>
-
-            <TextField
-              label="Medical Notes"
-              multiline
-              rows={3}
-              value={formData.medicalNotes || ''}
-              onChange={(e) => handleInputChange('medicalNotes', e.target.value)}
-              size="small"
-              placeholder="Any medical conditions, allergies, or special considerations..."
-            />
-
-            <TextField
-              label="General Notes"
-              multiline
-              rows={3}
-              value={formData.notes || ''}
-              onChange={(e) => handleInputChange('notes', e.target.value)}
-              size="small"
-              placeholder="Additional notes about this member..."
-            />
-
-            <Box>
-              <Typography variant="subtitle2" sx={{ mb: 1 }}>Member Tags</Typography>
-              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2 }}>
-                {formData.tags?.map((tag) => (
-                  <Chip
-                    key={tag}
-                    label={tag}
-                    onDelete={() => handleRemoveTag(tag)}
-                    size="small"
-                    color="primary"
-                    variant="outlined"
-                  />
-                ))}
-              </Box>
-              <Box sx={{ display: 'flex', gap: 1 }}>
-                <TextField
-                  label="Add Tag"
-                  value={newTag}
-                  onChange={(e) => setNewTag(e.target.value)}
-                  size="small"
-                  onKeyPress={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      handleAddTag();
-                    }
-                  }}
-                />
-                <Button
-                  variant="outlined"
-                  onClick={handleAddTag}
-                  disabled={!newTag.trim()}
-                  size="small"
-                >
-                  Add
-                </Button>
-              </Box>
-            </Box>
-          </Box>
-        );
-
-      default:
-        return null;
+    setDeleteLoading(memberToDelete.id);
+    try {
+      await deleteMember(memberToDelete.id, userData.uid);
+      await fetchMembers();
+      setDeleteDialogOpen(false);
+      setMemberToDelete(null);
+      setSuccessMessage(`Member ${memberToDelete.firstName} ${memberToDelete.lastName} has been deactivated`);
+    } catch (err: any) {
+      console.error('Error deleting member:', err);
+      setError('An error occurred while deleting: ' + err.message);
+    } finally {
+      setDeleteLoading(null);
     }
   };
 
+  const handleDeleteCancel = () => {
+    setDeleteDialogOpen(false);
+    setMemberToDelete(null);
+  };
+
+  const handleStatusClick = (member: MemberRecord, status: MemberStatus) => {
+    setMemberToUpdate(member);
+    setNewStatus(status);
+    setStatusDialogOpen(true);
+    handleMenuClose();
+  };
+
+  const handleStatusConfirm = async () => {
+    if (!memberToUpdate || !userData) return;
+
+    setStatusLoading(memberToUpdate.id);
+    try {
+      await updateMembershipStatus(memberToUpdate.id, newStatus, userData.uid);
+      await fetchMembers();
+      setStatusDialogOpen(false);
+      
+      // Set success message
+      const statusAction = getStatusActionName(newStatus);
+      setSuccessMessage(`${memberToUpdate.firstName} ${memberToUpdate.lastName} has been marked as ${statusAction}`);
+      
+      setMemberToUpdate(null);
+    } catch (err: any) {
+      console.error('Error updating status:', err);
+      setError('An error occurred while updating status: ' + err.message);
+    } finally {
+      setStatusLoading(null);
+    }
+  };
+
+  const handleStatusCancel = () => {
+    setStatusDialogOpen(false);
+    setMemberToUpdate(null);
+  };
+
+  const handleMenuClick = (event: React.MouseEvent<HTMLElement>, member: MemberRecord) => {
+    setAnchorEl(event.currentTarget);
+    setSelectedMember(member);
+  };
+
+  const handleMenuClose = () => {
+    setAnchorEl(null);
+    setSelectedMember(null);
+  };
+
+  const getStatusColor = (status: MemberStatus) => {
+    switch (status) {
+      case 'Active':
+        return 'success';
+      case 'Paused':
+        return 'warning';
+      case 'Overdue':
+        return 'error';
+      case 'No Membership':
+      default:
+        return 'default';
+    }
+  };
+
+  const getStatusIcon = (status: MemberStatus) => {
+    switch (status) {
+      case 'Active':
+        return <CheckCircleIcon />;
+      case 'Paused':
+        return <PauseCircleIcon />;
+      case 'Overdue':
+        return <ErrorIcon />;
+      case 'No Membership':
+      default:
+        return <PersonOffIcon />;
+    }
+  };
+
+  const getStatusActionName = (status: MemberStatus): string => {
+    switch (status) {
+      case 'Active':
+        return 'Active';
+      case 'Paused':
+        return 'Paused';
+      case 'Overdue':
+        return 'Overdue';
+      case 'No Membership':
+        return 'No Membership';
+      default:
+        return status;
+    }
+  };
+
+  const getStatusDescription = (status: MemberStatus): string => {
+    switch (status) {
+      case 'Active':
+        return 'Member will have access to all services and can book classes.';
+      case 'Paused':
+        return 'Member account will be temporarily suspended but can be reactivated.';
+      case 'Overdue':
+        return 'Member will be marked as overdue for payments but account remains accessible.';
+      case 'No Membership':
+        return 'Member will have no active membership or access to services.';
+      default:
+        return 'This will change the member\'s current status.';
+    }
+  };
+
+  const formatDate = (date: any) => {
+    if (!date) return 'N/A';
+    try {
+      const dateObj = date.toDate ? date.toDate() : new Date(date);
+      return format(dateObj, 'MMM dd, yyyy');
+    } catch (error) {
+      return 'Invalid Date';
+    }
+  };
+
+  const getMemberInitials = (member: MemberRecord) => {
+    const firstName = member?.firstName || '';
+    const lastName = member?.lastName || '';
+    
+    const firstInitial = firstName.length > 0 ? firstName.charAt(0).toUpperCase() : '';
+    const lastInitial = lastName.length > 0 ? lastName.charAt(0).toUpperCase() : '';
+    
+    return `${firstInitial}${lastInitial}` || '??';
+  };
+
+  // Stats for tabs
+  const memberStats = useMemo(() => {
+    const stats = {
+      all: memberList.length,
+      active: memberList.filter(m => m?.membership?.status === 'Active').length,
+      inactive: memberList.filter(m => {
+        const status = m?.membership?.status;
+        return status === 'Paused' || status === 'Overdue' || status === 'No Membership' || !status;
+      }).length,
+    };
+    return stats;
+  }, [memberList]);
+
+  if (loading) {
+    return (
+      <Box sx={{ 
+        display: 'flex', 
+        justifyContent: 'center', 
+        alignItems: 'center',
+        minHeight: 200,
+        mt: 2
+      }}>
+        <CircularProgress />
+      </Box>
+    );
+  }
+
+  if (error) {
+    return (
+      <Paper sx={{ p: 3, mt: 2 }}>
+        <Alert severity="error" onClose={() => setError(null)}>{error}</Alert>
+      </Paper>
+    );
+  }
+
+  if (memberList.length === 0) {
+    return (
+      <Paper sx={{ p: 3, mt: 2, textAlign: 'center' }}>
+        <Typography variant="body1" color="text.secondary">
+          No members found. Create your first member to get started.
+        </Typography>
+      </Paper>
+    );
+  }
+
+  // Mobile card view
+  if (isMobile) {
+    return (
+      <>
+        {/* Success Message */}
+        {successMessage && (
+          <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccessMessage(null)}>
+            {successMessage}
+          </Alert>
+        )}
+
+        {/* Search and Filters */}
+        <Paper sx={{ p: 2, mb: 2 }}>
+          <TextField
+            placeholder="Search members..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            size="small"
+            fullWidth
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon />
+                </InputAdornment>
+              ),
+            }}
+            sx={{ mb: 2 }}
+          />
+          
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            <FormControl size="small" sx={{ minWidth: 120 }}>
+              <InputLabel>Status</InputLabel>
+              <Select
+                value={statusFilter}
+                label="Status"
+                onChange={(e) => setStatusFilter(e.target.value as any)}
+              >
+                <MenuItem value="all">All Status</MenuItem>
+                <MenuItem value="Active">Active</MenuItem>
+                <MenuItem value="Paused">Paused</MenuItem>
+                <MenuItem value="Overdue">Overdue</MenuItem>
+                <MenuItem value="No Membership">No Membership</MenuItem>
+              </Select>
+            </FormControl>
+
+            <FormControl size="small" sx={{ minWidth: 120 }}>
+              <InputLabel>Type</InputLabel>
+              <Select
+                value={membershipTypeFilter}
+                label="Type"
+                onChange={(e) => setMembershipTypeFilter(e.target.value as any)}
+              >
+                <MenuItem value="all">All Types</MenuItem>
+                <MenuItem value="Recurring">Recurring</MenuItem>
+                <MenuItem value="Prepaid">Prepaid</MenuItem>
+              </Select>
+            </FormControl>
+          </Box>
+        </Paper>
+
+        {/* Member Cards */}
+        <Box sx={{ 
+          display: 'flex', 
+          flexDirection: 'column',
+          gap: 2,
+          mt: 1 
+        }}>
+          {filteredMembers.map((member) => (
+            <Card key={member.id} sx={{ elevation: 1 }}>
+              <CardContent sx={{ pb: 1 }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Avatar sx={{ width: 40, height: 40, bgcolor: 'primary.main' }}>
+                      {getMemberInitials(member)}
+                    </Avatar>
+                    <Box>
+                      <Typography variant="h6" sx={{ fontSize: '1.1rem', fontWeight: 600 }}>
+                        {member?.firstName || 'Unknown'} {member?.lastName || 'Member'}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        Member since {formatDate(member?.joinDate)}
+                      </Typography>
+                    </Box>
+                  </Box>
+                  
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Chip
+                      icon={getStatusIcon(member?.membership?.status || 'No Membership')}
+                      label={member?.membership?.status || 'No Membership'}
+                      color={getStatusColor(member?.membership?.status || 'No Membership') as any}
+                      size="small"
+                    />
+                    {isAdmin && (
+                      <IconButton
+                        onClick={(e) => handleMenuClick(e, member)}
+                        size="small"
+                      >
+                        <MoreVertIcon />
+                      </IconButton>
+                    )}
+                  </Box>
+                </Box>
+
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <EmailIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
+                    <Typography variant="body2" color="text.secondary">
+                      {member?.email || 'No email'}
+                    </Typography>
+                  </Box>
+                  
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <PhoneIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
+                    <Typography variant="body2" color="text.secondary">
+                      {member?.phone || 'No phone'}
+                    </Typography>
+                  </Box>
+                  
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <CreditCardIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
+                    <Typography variant="body2" color="text.secondary">
+                      {member?.membership?.type || 'No Membership'}
+                      {member?.membership?.type === 'Recurring' && member?.membership?.monthlyAmount && 
+                        ` - $${member.membership.monthlyAmount}/month`
+                      }
+                      {member?.membership?.type === 'Prepaid' && member?.membership?.remainingCredits !== undefined && 
+                        ` - ${member.membership.remainingCredits} credits left`
+                      }
+                    </Typography>
+                  </Box>
+
+                  {member?.membership?.status === 'Active' && member?.lastVisit && (
+                    <Typography variant="caption" color="text.secondary">
+                      Last visit: {formatDate(member.lastVisit)}
+                    </Typography>
+                  )}
+                </Box>
+
+                {member.tags && member.tags.length > 0 && (
+                  <Box sx={{ mt: 1, display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                    {member.tags.map((tag) => (
+                      <Chip
+                        key={tag}
+                        label={tag}
+                        size="small"
+                        variant="outlined"
+                        color="primary"
+                        sx={{ fontSize: '0.75rem' }}
+                      />
+                    ))}
+                  </Box>
+                )}
+              </CardContent>
+            </Card>
+          ))}
+        </Box>
+
+        {/* Action Menu */}
+        <Menu
+          anchorEl={anchorEl}
+          open={Boolean(anchorEl)}
+          onClose={handleMenuClose}
+          transformOrigin={{ horizontal: 'right', vertical: 'top' }}
+          anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
+        >
+          {selectedMember && (
+            <>
+              <MenuItemComponent onClick={() => onEdit(selectedMember)}>
+                <EditIcon sx={{ mr: 1 }} />
+                Edit Member
+              </MenuItemComponent>
+              
+              <Divider />
+              
+              <MenuItemComponent 
+                onClick={() => handleStatusClick(selectedMember, 'Active')}
+                disabled={selectedMember?.membership?.status === 'Active'}
+              >
+                <CheckCircleIcon sx={{ mr: 1 }} />
+                Mark Active
+              </MenuItemComponent>
+              
+              <MenuItemComponent 
+                onClick={() => handleStatusClick(selectedMember, 'Paused')}
+                disabled={selectedMember?.membership?.status === 'Paused'}
+              >
+                <PauseCircleIcon sx={{ mr: 1 }} />
+                Mark Paused
+              </MenuItemComponent>
+              
+              <MenuItemComponent 
+                onClick={() => handleStatusClick(selectedMember, 'Overdue')}
+                disabled={selectedMember?.membership?.status === 'Overdue'}
+              >
+                <ErrorIcon sx={{ mr: 1 }} />
+                Mark Overdue
+              </MenuItemComponent>
+              
+              <Divider />
+              
+              <MenuItemComponent 
+                onClick={() => handleDeleteClick(selectedMember)}
+                sx={{ color: 'error.main' }}
+              >
+                <DeleteIcon sx={{ mr: 1 }} />
+                Deactivate
+              </MenuItemComponent>
+            </>
+          )}
+        </Menu>
+      </>
+    );
+  }
+
+  // Desktop table view
   return (
-    <LocalizationProvider dateAdapter={AdapterDateFns}>
-      <Dialog
-        open={open}
-        onClose={handleClose}
-        fullWidth
-        maxWidth="md"
-        fullScreen={isMobile}
-        sx={{
-          '& .MuiDialog-paper': {
-            margin: isMobile ? 0 : 2,
-            width: isMobile ? '100%' : 'auto',
-            maxHeight: isMobile ? '100%' : 'calc(100% - 64px)',
-          },
-        }}
-      >
-        <DialogTitle sx={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          pb: 1,
-        }}>
-          {editData ? 'Edit Member' : 'Add New Member'}
-          {isMobile && (
-            <IconButton onClick={handleClose} size="small" disabled={loading}>
-              <CloseIcon />
-            </IconButton>
-          )}
-        </DialogTitle>
+    <>
+      {/* Success Message */}
+      {successMessage && (
+        <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccessMessage(null)}>
+          {successMessage}
+        </Alert>
+      )}
 
-        <DialogContent sx={{ px: { xs: 2, sm: 3 } }}>
-          {error && (
-            <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
-              {error}
-            </Alert>
-          )}
+      {/* Filters and Tabs */}
+      <Paper sx={{ mb: 2 }}>
+        <Tabs 
+          value={tabValue} 
+          onChange={(_, newValue) => setTabValue(newValue)}
+          sx={{ borderBottom: 1, borderColor: 'divider' }}
+        >
+          <Tab label={`All Members (${memberStats.all})`} />
+          <Tab label={`Active (${memberStats.active})`} />
+          <Tab label={`Inactive (${memberStats.inactive})`} />
+        </Tabs>
+        
+        <Box sx={{ p: 2, display: 'flex', gap: 2, alignItems: 'center' }}>
+          <TextField
+            placeholder="Search members..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            size="small"
+            sx={{ minWidth: 300 }}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon />
+                </InputAdornment>
+              ),
+            }}
+          />
+          
+          <FormControl size="small" sx={{ minWidth: 120 }}>
+            <InputLabel>Status</InputLabel>
+            <Select
+              value={statusFilter}
+              label="Status"
+              onChange={(e) => setStatusFilter(e.target.value as any)}
+            >
+              <MenuItem value="all">All Status</MenuItem>
+              <MenuItem value="Active">Active</MenuItem>
+              <MenuItem value="Paused">Paused</MenuItem>
+              <MenuItem value="Overdue">Overdue</MenuItem>
+              <MenuItem value="No Membership">No Membership</MenuItem>
+            </Select>
+          </FormControl>
 
-          {/* Stepper */}
-          <Stepper activeStep={activeStep} sx={{ mb: 4 }}>
-            {steps.map((label) => (
-              <Step key={label}>
-                <StepLabel>{label}</StepLabel>
-              </Step>
+          <FormControl size="small" sx={{ minWidth: 120 }}>
+            <InputLabel>Type</InputLabel>
+            <Select
+              value={membershipTypeFilter}
+              label="Type"
+              onChange={(e) => setMembershipTypeFilter(e.target.value as any)}
+            >
+              <MenuItem value="all">All Types</MenuItem>
+              <MenuItem value="Recurring">Recurring</MenuItem>
+              <MenuItem value="Prepaid">Prepaid</MenuItem>
+            </Select>
+          </FormControl>
+
+          <Typography variant="body2" color="text.secondary" sx={{ ml: 'auto' }}>
+            Showing {filteredMembers.length} of {memberList.length} members
+          </Typography>
+        </Box>
+      </Paper>
+
+      {/* Desktop Table */}
+      <TableContainer component={Paper}>
+        <Table sx={{ minWidth: 650 }}>
+          <TableHead>
+            <TableRow>
+              <TableCell sx={{ fontWeight: 600, fontSize: '0.95rem' }}>
+                Member
+              </TableCell>
+              <TableCell sx={{ fontWeight: 600, fontSize: '0.95rem' }}>
+                Contact
+              </TableCell>
+              <TableCell sx={{ fontWeight: 600, fontSize: '0.95rem' }}>
+                Membership
+              </TableCell>
+              <TableCell sx={{ fontWeight: 600, fontSize: '0.95rem' }}>
+                Status
+              </TableCell>
+              <TableCell sx={{ fontWeight: 600, fontSize: '0.95rem' }}>
+                Last Visit
+              </TableCell>
+              {isAdmin && (
+                <TableCell sx={{ fontWeight: 600, fontSize: '0.95rem', width: 100 }}>
+                  Actions
+                </TableCell>
+              )}
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {filteredMembers.map((member) => (
+              <TableRow
+                key={member.id}
+                sx={{
+                  '&:hover': {
+                    backgroundColor: theme.palette.action.hover
+                  },
+                  '&:last-child td, &:last-child th': { border: 0 }
+                }}
+              >
+                <TableCell>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                    <Avatar sx={{ width: 40, height: 40, bgcolor: 'primary.main' }}>
+                      {getMemberInitials(member)}
+                    </Avatar>
+                    <Box>
+                      <Typography variant="body2" fontWeight={600}>
+                        {member?.firstName || 'Unknown'} {member?.lastName || 'Member'}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        Joined {formatDate(member?.joinDate)}
+                      </Typography>
+                      {member?.tags && member.tags.length > 0 && (
+                        <Box sx={{ mt: 0.5, display: 'flex', gap: 0.5 }}>
+                          {member.tags.slice(0, 2).map((tag) => (
+                            <Chip
+                              key={tag}
+                              label={tag}
+                              size="small"
+                              variant="outlined"
+                              color="primary"
+                              sx={{ fontSize: '0.7rem', height: 18 }}
+                            />
+                          ))}
+                          {member.tags.length > 2 && (
+                            <Typography variant="caption" color="text.secondary">
+                              +{member.tags.length - 2} more
+                            </Typography>
+                          )}
+                        </Box>
+                      )}
+                    </Box>
+                  </Box>
+                </TableCell>
+                
+                <TableCell sx={{ fontSize: '0.9rem' }}>
+                  <Box>
+                    <Typography variant="body2">
+                      {member?.email || 'No email'}
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      {member?.phone || 'No phone'}
+                    </Typography>
+                  </Box>
+                </TableCell>
+                
+                <TableCell sx={{ fontSize: '0.9rem' }}>
+                  <Box>
+                    <Typography variant="body2" fontWeight={500}>
+                      {member?.membership?.type || 'No Membership'}
+                    </Typography>
+                    {member?.membership?.type === 'Recurring' && member?.membership?.monthlyAmount && (
+                      <Typography variant="body2" color="success.main">
+                        ${member.membership.monthlyAmount}/month
+                      </Typography>
+                    )}
+                    {member?.membership?.type === 'Prepaid' && member?.membership?.remainingCredits !== undefined && (
+                      <Typography variant="body2" color="primary.main">
+                        {member.membership.remainingCredits} credits left
+                      </Typography>
+                    )}
+                  </Box>
+                </TableCell>
+                
+                <TableCell>
+                  <Chip
+                    icon={getStatusIcon(member?.membership?.status || 'No Membership')}
+                    label={member?.membership?.status || 'No Membership'}
+                    color={getStatusColor(member?.membership?.status || 'No Membership') as any}
+                    size="small"
+                    variant="outlined"
+                  />
+                </TableCell>
+                
+                <TableCell sx={{ fontSize: '0.9rem' }}>
+                  <Box>
+                    <Typography variant="body2">
+                      {member?.lastVisit ? formatDate(member.lastVisit) : 'Never'}
+                    </Typography>
+                    {(member?.totalVisits || 0) > 0 && (
+                      <Typography variant="caption" color="text.secondary">
+                        {member.totalVisits} total visits
+                      </Typography>
+                    )}
+                  </Box>
+                </TableCell>
+                
+                {isAdmin && (
+                  <TableCell>
+                    <IconButton
+                      onClick={(e) => handleMenuClick(e, member)}
+                      size="small"
+                    >
+                      <MoreVertIcon />
+                    </IconButton>
+                  </TableCell>
+                )}
+              </TableRow>
             ))}
-          </Stepper>
+          </TableBody>
+        </Table>
+      </TableContainer>
 
-          {/* Step Content */}
-          {renderStepContent(activeStep)}
+      {/* Action Menu */}
+      <Menu
+        anchorEl={anchorEl}
+        open={Boolean(anchorEl)}
+        onClose={handleMenuClose}
+        transformOrigin={{ horizontal: 'right', vertical: 'top' }}
+        anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
+      >
+        {selectedMember && (
+          <>
+            <MenuItemComponent onClick={() => onEdit(selectedMember)}>
+              <EditIcon sx={{ mr: 1 }} />
+              Edit Member
+            </MenuItemComponent>
+            
+            <Divider />
+            
+            <MenuItemComponent 
+              onClick={() => handleStatusClick(selectedMember, 'Active')}
+              disabled={selectedMember?.membership?.status === 'Active'}
+            >
+              <CheckCircleIcon sx={{ mr: 1 }} />
+              Mark Active
+            </MenuItemComponent>
+            
+            <MenuItemComponent 
+              onClick={() => handleStatusClick(selectedMember, 'Paused')}
+              disabled={selectedMember?.membership?.status === 'Paused'}
+            >
+              <PauseCircleIcon sx={{ mr: 1 }} />
+              Mark Paused
+            </MenuItemComponent>
+            
+            <MenuItemComponent 
+              onClick={() => handleStatusClick(selectedMember, 'Overdue')}
+              disabled={selectedMember?.membership?.status === 'Overdue'}
+            >
+              <ErrorIcon sx={{ mr: 1 }} />
+              Mark Overdue
+            </MenuItemComponent>
+            
+            <Divider />
+            
+            <MenuItemComponent 
+              onClick={() => handleDeleteClick(selectedMember)}
+              sx={{ color: 'error.main' }}
+            >
+              <DeleteIcon sx={{ mr: 1 }} />
+              Deactivate
+            </MenuItemComponent>
+          </>
+        )}
+      </Menu>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={deleteDialogOpen} onClose={handleDeleteCancel}>
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <WarningIcon color="warning" />
+          Deactivate Member
+        </DialogTitle>
+        <DialogContent>
+          <Typography gutterBottom>
+            Are you sure you want to deactivate{' '}
+            <strong>{memberToDelete?.firstName} {memberToDelete?.lastName}</strong>?
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            This will mark the member as inactive but preserve their data. The member can be reactivated later if needed.
+          </Typography>
         </DialogContent>
-
-        <DialogActions sx={{
-          px: { xs: 2, sm: 3 },
-          pb: { xs: 2, sm: 3 },
-          pt: 1,
-          gap: 1,
-          flexDirection: { xs: 'column', sm: 'row' },
-          '& .MuiButton-root': {
-            width: { xs: '100%', sm: 'auto' },
-            minWidth: { sm: 80 }
-          }
-        }}>
-          <Button
-            onClick={handleClose}
-            disabled={loading}
-            variant="outlined"
-          >
+        <DialogActions>
+          <Button onClick={handleDeleteCancel} disabled={deleteLoading !== null}>
             Cancel
           </Button>
-          
-          {activeStep > 0 && (
-            <Button
-              onClick={handleBack}
-              disabled={loading}
-              variant="outlined"
-            >
-              Back
-            </Button>
-          )}
-          
-          {activeStep < steps.length - 1 ? (
-            <Button
-              onClick={handleNext}
-              variant="contained"
-              disabled={!validateStep(activeStep)}
-            >
-              Next
-            </Button>
-          ) : (
-            <Button
-              onClick={handleSubmit}
-              variant="contained"
-              disabled={loading || !validateStep(activeStep)}
-            >
-              {loading ? (editData ? 'Updating...' : 'Creating...') : (editData ? 'Update Member' : 'Create Member')}
-            </Button>
-          )}
+          <Button 
+            onClick={handleDeleteConfirm} 
+            color="warning" 
+            variant="contained"
+            disabled={deleteLoading !== null}
+            startIcon={deleteLoading ? <CircularProgress size={16} /> : <PersonOffIcon />}
+          >
+            {deleteLoading ? 'Deactivating...' : 'Deactivate Member'}
+          </Button>
         </DialogActions>
       </Dialog>
-    </LocalizationProvider>
+
+      {/* Status Change Confirmation Dialog */}
+      <Dialog open={statusDialogOpen} onClose={handleStatusCancel}>
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          {getStatusIcon(newStatus)}
+          Update Membership Status
+        </DialogTitle>
+        <DialogContent>
+          <Typography gutterBottom>
+            Are you sure you want to change the membership status of{' '}
+            <strong>{memberToUpdate?.firstName} {memberToUpdate?.lastName}</strong>{' '}
+            to <strong>{getStatusActionName(newStatus)}</strong>?
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            {getStatusDescription(newStatus)}
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleStatusCancel} disabled={statusLoading !== null}>
+            Cancel
+          </Button>
+          <Button 
+            onClick={handleStatusConfirm} 
+            color="primary" 
+            variant="contained"
+            disabled={statusLoading !== null}
+            startIcon={statusLoading ? <CircularProgress size={16} /> : getStatusIcon(newStatus)}
+          >
+            {statusLoading ? 'Updating...' : `Mark as ${getStatusActionName(newStatus)}`}
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </>
   );
 };
 
-export default MemberForm;
+export default MemberTable;
