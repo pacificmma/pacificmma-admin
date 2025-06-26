@@ -1,6 +1,6 @@
-// src/components/MemberTable.tsx - Fixed implementation with comprehensive error handling
+// src/components/MemberTable.tsx - Optimized with intelligent caching and request management
 
-import React, { useEffect, useState, useMemo, useCallback } from 'react';
+import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import {
   Table,
   TableBody,
@@ -39,6 +39,8 @@ import {
   Divider,
   Snackbar,
   Skeleton,
+  Fab,
+  Badge,
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import EditIcon from '@mui/icons-material/Edit';
@@ -56,6 +58,8 @@ import ErrorIcon from '@mui/icons-material/Error';
 import PersonOffIcon from '@mui/icons-material/PersonOff';
 import WarningIcon from '@mui/icons-material/Warning';
 import RefreshIcon from '@mui/icons-material/Refresh';
+import ClearIcon from '@mui/icons-material/Clear';
+import TuneIcon from '@mui/icons-material/Tune';
 import { format } from 'date-fns';
 import { 
   MemberRecord, 
@@ -63,9 +67,14 @@ import {
   MembershipType 
 } from '../types/members';
 import { 
-  getAllMembers, 
+  getAllMembers,
   deleteMember, 
-  updateMembershipStatus 
+  updateMembershipStatus,
+  subscribeMemberUpdates,
+  searchMembers,
+  getMemberStats,
+  clearMemberCache,
+  getCacheStats,
 } from '../services/memberService';
 import { useRoleControl } from '../hooks/useRoleControl';
 
@@ -80,6 +89,14 @@ interface LoadingState {
   refresh: boolean;
   delete: string | null;
   statusUpdate: string | null;
+  search: boolean;
+}
+
+interface FilterState {
+  searchTerm: string;
+  statusFilter: 'all' | MemberStatus;
+  membershipTypeFilter: 'all' | MembershipType;
+  tagFilter: string;
 }
 
 interface DialogState {
@@ -94,6 +111,9 @@ interface DialogState {
   };
 }
 
+const SEARCH_DEBOUNCE_MS = 300;
+const REFRESH_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+
 const MemberTable: React.FC<MemberTableProps> = ({ 
   refreshTrigger, 
   onEdit, 
@@ -107,66 +127,216 @@ const MemberTable: React.FC<MemberTableProps> = ({
     refresh: false,
     delete: null,
     statusUpdate: null,
+    search: false,
   });
+  
   const [dialogs, setDialogs] = useState<DialogState>({
     delete: { open: false, member: null },
     statusUpdate: { open: false, member: null, newStatus: 'No Membership' },
   });
+  
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [cacheInfo, setCacheInfo] = useState<any>(null);
   
   // Filters and search
-  const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | MemberStatus>('all');
-  const [membershipTypeFilter, setMembershipTypeFilter] = useState<'all' | MembershipType>('all');
+  const [filters, setFilters] = useState<FilterState>({
+    searchTerm: '',
+    statusFilter: 'all',
+    membershipTypeFilter: 'all',
+    tagFilter: '',
+  });
+  
   const [tabValue, setTabValue] = useState(0);
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   
   // Menu state
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const [selectedMember, setSelectedMember] = useState<MemberRecord | null>(null);
 
+  // Refs for optimization
+  const searchTimeoutRef = useRef<number | null>(null);
+  const refreshIntervalRef = useRef<number | null>(null);
+  const unsubscribeRef = useRef<(() => void) | null>(null);
+  const lastRefreshRef = useRef<number>(0);
+
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const { isAdmin, userData } = useRoleControl();
 
-  // Fetch members with comprehensive error handling
-  const fetchMembers = useCallback(async (isRefresh = false) => {
+  // Memoized member stats
+  const memberStats = useMemo(() => {
     try {
-      setLoading(prev => ({ 
-        ...prev, 
-        initial: !isRefresh,
-        refresh: isRefresh 
-      }));
-      setError(null);
-      
-      console.log('Fetching members...');
-      const members = await getAllMembers();
-      
-      // Validate data integrity
-      const validMembers = members.filter(member => {
-        if (!member.id || !member.email) {
-          console.warn('Invalid member data found:', member);
-          return false;
+      const stats = {
+        all: memberList.length,
+        active: 0,
+        inactive: 0,
+        paused: 0,
+        overdue: 0,
+        noMembership: 0,
+      };
+
+      memberList.forEach(member => {
+        try {
+          const status = member?.membership?.status;
+          switch (status) {
+            case 'Active':
+              stats.active++;
+              break;
+            case 'Paused':
+              stats.paused++;
+              stats.inactive++;
+              break;
+            case 'Overdue':
+              stats.overdue++;
+              stats.inactive++;
+              break;
+            case 'No Membership':
+            default:
+              stats.noMembership++;
+              stats.inactive++;
+              break;
+          }
+        } catch (err) {
+          console.warn('Error calculating stats for member:', member?.id, err);
         }
-        return true;
       });
 
-      if (validMembers.length !== members.length) {
-        console.warn(`Filtered out ${members.length - validMembers.length} invalid member records`);
+      return stats;
+    } catch (error) {
+      console.error('Error calculating member stats:', error);
+      return { all: 0, active: 0, inactive: 0, paused: 0, overdue: 0, noMembership: 0 };
+    }
+  }, [memberList]);
+
+  // Debounced search function
+  const debouncedSearch = useCallback((searchTerm: string, otherFilters: Partial<FilterState>) => {
+    if (searchTimeoutRef.current !== null) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+
+    searchTimeoutRef.current = window.setTimeout(async () => {
+      if (!searchTerm.trim() && 
+          otherFilters.statusFilter === 'all' && 
+          otherFilters.membershipTypeFilter === 'all' &&
+          !otherFilters.tagFilter) {
+        // No filters applied, use cached data
+        setFilteredMembers(memberList);
+        return;
       }
+
+      try {
+        setLoading(prev => ({ ...prev, search: true }));
+        
+        const searchFilters: any = {};
+        if (otherFilters.statusFilter && otherFilters.statusFilter !== 'all') {
+          searchFilters.status = otherFilters.statusFilter;
+        }
+        if (otherFilters.membershipTypeFilter && otherFilters.membershipTypeFilter !== 'all') {
+          searchFilters.membershipType = otherFilters.membershipTypeFilter;
+        }
+        if (otherFilters.tagFilter) {
+          searchFilters.tags = [otherFilters.tagFilter];
+        }
+
+        const results = await searchMembers(searchTerm, searchFilters);
+        setFilteredMembers(results);
+      } catch (err) {
+        console.error('Search error:', err);
+        setError('Search failed. Please try again.');
+      } finally {
+        setLoading(prev => ({ ...prev, search: false }));
+      }
+    }, SEARCH_DEBOUNCE_MS);
+  }, [memberList]);
+
+  // Filter handler
+  const handleFilterChange = useCallback((field: keyof FilterState, value: any) => {
+    const newFilters = { ...filters, [field]: value };
+    setFilters(newFilters);
+    
+    // Apply tab filter
+    let statusFilter = newFilters.statusFilter;
+    switch (tabValue) {
+      case 1: // Active
+        statusFilter = 'Active';
+        break;
+      case 2: // Inactive
+        // Keep current filter or default to 'all' for inactive
+        break;
+      default:
+        // All members - use selected filter
+        break;
+    }
+
+    debouncedSearch(newFilters.searchTerm, {
+      ...newFilters,
+      statusFilter,
+    });
+  }, [filters, tabValue, debouncedSearch]);
+
+  // Tab change handler
+  const handleTabChange = useCallback((event: React.SyntheticEvent, newValue: number) => {
+    setTabValue(newValue);
+    
+    let statusFilter: 'all' | MemberStatus = 'all';
+    switch (newValue) {
+      case 1: // Active
+        statusFilter = 'Active';
+        break;
+      case 2: // Inactive  
+        // For inactive, we'll filter locally since it includes multiple statuses
+        const inactiveMembers = memberList.filter(member => {
+          const status = member?.membership?.status;
+          return status === 'Paused' || status === 'Overdue' || status === 'No Membership' || !status;
+        });
+        setFilteredMembers(inactiveMembers);
+        return;
+    }
+
+    // For other tabs, use search with status filter
+    debouncedSearch(filters.searchTerm, {
+      ...filters,
+      statusFilter,
+    });
+  }, [memberList, filters, debouncedSearch]);
+
+  // Fetch members with intelligent caching
+  const fetchMembers = useCallback(async (forceRefresh = false) => {
+    try {
+      const now = Date.now();
+      const shouldRefresh = forceRefresh || (now - lastRefreshRef.current) > REFRESH_INTERVAL_MS;
       
-      setMemberList(validMembers);
+      setLoading(prev => ({ 
+        ...prev, 
+        initial: !memberList.length,
+        refresh: shouldRefresh && memberList.length > 0,
+      }));
+      
+      setError(null);
+      
+      console.log('Fetching members...', { forceRefresh, shouldRefresh });
+      
+      // Use cache for normal loads, force refresh when needed
+      const members = await getAllMembers(!shouldRefresh, true);
+      
+      setMemberList(members);
+      setFilteredMembers(members);
+      lastRefreshRef.current = now;
       
       // Pass data to parent component for stats calculation
       if (onDataLoaded) {
-        onDataLoaded({ memberList: validMembers });
+        onDataLoaded({ memberList: members });
       }
       
-      console.log(`Loaded ${validMembers.length} valid members`);
+      // Update cache stats
+      setCacheInfo(getCacheStats());
+      
+      console.log(`Loaded ${members.length} members`);
     } catch (err: any) {
       console.error('Error loading members:', err);
       
-      // Provide specific error messages based on error type
+      // Provide specific error messages
       let errorMessage = 'An error occurred while loading members';
       
       if (err.code === 'permission-denied') {
@@ -185,12 +355,56 @@ const MemberTable: React.FC<MemberTableProps> = ({
         refresh: false,
       }));
     }
-  }, [onDataLoaded]);
+  }, [memberList.length, onDataLoaded]);
 
-  // Initial load and refresh trigger handling
+  // Subscribe to real-time updates
   useEffect(() => {
+    // Initial load
     fetchMembers();
-  }, [fetchMembers, refreshTrigger]);
+
+    // Set up real-time subscription
+    const unsubscribe = subscribeMemberUpdates((updatedMembers) => {
+      console.log('Real-time member update received:', updatedMembers.length);
+      setMemberList(updatedMembers);
+      
+      // Re-apply current filters
+      if (filters.searchTerm || filters.statusFilter !== 'all' || filters.membershipTypeFilter !== 'all') {
+        handleFilterChange('searchTerm', filters.searchTerm);
+      } else {
+        setFilteredMembers(updatedMembers);
+      }
+      
+      if (onDataLoaded) {
+        onDataLoaded({ memberList: updatedMembers });
+      }
+    });
+
+    unsubscribeRef.current = unsubscribe;
+
+    // Set up periodic refresh
+    refreshIntervalRef.current = window.setInterval(() => {
+      fetchMembers(true);
+    }, REFRESH_INTERVAL_MS);
+
+    return () => {
+      if (unsubscribeRef.current) {
+        unsubscribeRef.current();
+      }
+      if (refreshIntervalRef.current !== null) {
+        clearInterval(refreshIntervalRef.current);
+      }
+      if (searchTimeoutRef.current !== null) {
+        clearTimeout(searchTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  // Handle refresh trigger from parent
+  useEffect(() => {
+    if (refreshTrigger && refreshTrigger > 0) {
+      fetchMembers(true);
+    }
+  }, [refreshTrigger, fetchMembers]);
 
   // Auto-clear success message
   useEffect(() => {
@@ -199,92 +413,6 @@ const MemberTable: React.FC<MemberTableProps> = ({
       return () => clearTimeout(timer);
     }
   }, [successMessage]);
-
-  // Filter members with error handling
-  useEffect(() => {
-    try {
-      let filtered = [...memberList];
-
-      // Search filter
-      if (searchTerm.trim()) {
-        const term = searchTerm.toLowerCase().trim();
-        filtered = filtered.filter(member => {
-          try {
-            const searchFields = [
-              member?.firstName || '',
-              member?.lastName || '',
-              member?.email || '',
-              member?.phone || '',
-              // Safe concatenation for full name search
-              `${member?.firstName || ''} ${member?.lastName || ''}`.trim(),
-            ];
-            
-            return searchFields.some(field => 
-              field.toLowerCase().includes(term)
-            );
-          } catch (err) {
-            console.warn('Error filtering member:', member?.id, err);
-            return false;
-          }
-        });
-      }
-
-      // Status filter
-      if (statusFilter !== 'all') {
-        filtered = filtered.filter(member => {
-          try {
-            return member?.membership?.status === statusFilter;
-          } catch (err) {
-            console.warn('Error checking member status:', member?.id, err);
-            return false;
-          }
-        });
-      }
-
-      // Membership type filter
-      if (membershipTypeFilter !== 'all') {
-        filtered = filtered.filter(member => {
-          try {
-            return member?.membership?.type === membershipTypeFilter;
-          } catch (err) {
-            console.warn('Error checking membership type:', member?.id, err);
-            return false;
-          }
-        });
-      }
-
-      // Tab filter
-      switch (tabValue) {
-        case 1: // Active
-          filtered = filtered.filter(member => {
-            try {
-              return member?.membership?.status === 'Active';
-            } catch (err) {
-              console.warn('Error in active filter:', member?.id, err);
-              return false;
-            }
-          });
-          break;
-        case 2: // Inactive
-          filtered = filtered.filter(member => {
-            try {
-              const status = member?.membership?.status;
-              return status === 'Paused' || status === 'Overdue' || status === 'No Membership' || !status;
-            } catch (err) {
-              console.warn('Error in inactive filter:', member?.id, err);
-              return false;
-            }
-          });
-          break;
-        // case 0 is 'All' - no additional filtering
-      }
-
-      setFilteredMembers(filtered);
-    } catch (err) {
-      console.error('Error filtering members:', err);
-      setError('Error filtering member data');
-    }
-  }, [memberList, searchTerm, statusFilter, membershipTypeFilter, tabValue]);
 
   // Dialog management functions
   const handleDeleteClick = useCallback((member: MemberRecord) => {
@@ -312,7 +440,6 @@ const MemberTable: React.FC<MemberTableProps> = ({
     
     try {
       await deleteMember(member.id, userData.uid);
-      await fetchMembers(true);
       
       setDialogs(prev => ({
         ...prev,
@@ -320,6 +447,9 @@ const MemberTable: React.FC<MemberTableProps> = ({
       }));
       
       setSuccessMessage(`Member ${member.firstName} ${member.lastName} has been deactivated`);
+      
+      // Refresh data
+      await fetchMembers(true);
     } catch (err: any) {
       console.error('Error deleting member:', err);
       setError(`Failed to deactivate member: ${err.message || 'Unknown error'}`);
@@ -360,7 +490,6 @@ const MemberTable: React.FC<MemberTableProps> = ({
     
     try {
       await updateMembershipStatus(member.id, newStatus, userData.uid);
-      await fetchMembers(true);
       
       setDialogs(prev => ({
         ...prev,
@@ -369,6 +498,9 @@ const MemberTable: React.FC<MemberTableProps> = ({
       
       const statusAction = getStatusActionName(newStatus);
       setSuccessMessage(`${member.firstName} ${member.lastName} has been marked as ${statusAction}`);
+      
+      // Refresh data
+      await fetchMembers(true);
     } catch (err: any) {
       console.error('Error updating status:', err);
       setError(`Failed to update status: ${err.message || 'Unknown error'}`);
@@ -404,6 +536,26 @@ const MemberTable: React.FC<MemberTableProps> = ({
   const handleRefresh = useCallback(() => {
     fetchMembers(true);
   }, [fetchMembers]);
+
+  // Clear cache
+  const handleClearCache = useCallback(() => {
+    clearMemberCache();
+    setCacheInfo(getCacheStats());
+    fetchMembers(true);
+    setSuccessMessage('Cache cleared and data refreshed');
+  }, [fetchMembers]);
+
+  // Clear filters
+  const handleClearFilters = useCallback(() => {
+    setFilters({
+      searchTerm: '',
+      statusFilter: 'all',
+      membershipTypeFilter: 'all',
+      tagFilter: '',
+    });
+    setTabValue(0);
+    setFilteredMembers(memberList);
+  }, [memberList]);
 
   // Utility functions
   const getStatusColor = useCallback((status: MemberStatus) => {
@@ -498,35 +650,6 @@ const MemberTable: React.FC<MemberTableProps> = ({
     }
   }, []);
 
-  // Stats for tabs with error handling
-  const memberStats = useMemo(() => {
-    try {
-      const stats = {
-        all: memberList.length,
-        active: 0,
-        inactive: 0,
-      };
-
-      memberList.forEach(member => {
-        try {
-          const status = member?.membership?.status;
-          if (status === 'Active') {
-            stats.active++;
-          } else if (status === 'Paused' || status === 'Overdue' || status === 'No Membership' || !status) {
-            stats.inactive++;
-          }
-        } catch (err) {
-          console.warn('Error calculating stats for member:', member?.id, err);
-        }
-      });
-
-      return stats;
-    } catch (error) {
-      console.error('Error calculating member stats:', error);
-      return { all: 0, active: 0, inactive: 0 };
-    }
-  }, [memberList]);
-
   // Loading states
   if (loading.initial) {
     return (
@@ -611,8 +734,8 @@ const MemberTable: React.FC<MemberTableProps> = ({
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
             <TextField
               placeholder="Search members..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
+              value={filters.searchTerm}
+              onChange={(e) => handleFilterChange('searchTerm', e.target.value)}
               size="small"
               fullWidth
               InputProps={{
@@ -621,18 +744,23 @@ const MemberTable: React.FC<MemberTableProps> = ({
                     <SearchIcon />
                   </InputAdornment>
                 ),
+                endAdornment: loading.search && (
+                  <InputAdornment position="end">
+                    <CircularProgress size={20} />
+                  </InputAdornment>
+                ),
               }}
             />
             {loading.refresh && <CircularProgress size={20} />}
           </Box>
           
-          <Box sx={{ display: 'flex', gap: 1 }}>
+          <Box sx={{ display: 'flex', gap: 1, mb: 1 }}>
             <FormControl size="small" sx={{ minWidth: 120 }}>
               <InputLabel>Status</InputLabel>
               <Select
-                value={statusFilter}
+                value={filters.statusFilter}
                 label="Status"
-                onChange={(e) => setStatusFilter(e.target.value as any)}
+                onChange={(e) => handleFilterChange('statusFilter', e.target.value)}
               >
                 <MenuItem value="all">All Status</MenuItem>
                 <MenuItem value="Active">Active</MenuItem>
@@ -645,16 +773,65 @@ const MemberTable: React.FC<MemberTableProps> = ({
             <FormControl size="small" sx={{ minWidth: 120 }}>
               <InputLabel>Type</InputLabel>
               <Select
-                value={membershipTypeFilter}
+                value={filters.membershipTypeFilter}
                 label="Type"
-                onChange={(e) => setMembershipTypeFilter(e.target.value as any)}
+                onChange={(e) => handleFilterChange('membershipTypeFilter', e.target.value)}
               >
                 <MenuItem value="all">All Types</MenuItem>
                 <MenuItem value="Recurring">Recurring</MenuItem>
                 <MenuItem value="Prepaid">Prepaid</MenuItem>
               </Select>
             </FormControl>
+
+            <IconButton 
+              onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
+              color={showAdvancedFilters ? 'primary' : 'default'}
+            >
+              <TuneIcon />
+            </IconButton>
           </Box>
+
+          {showAdvancedFilters && (
+            <Box sx={{ mt: 2, pt: 2, borderTop: 1, borderColor: 'divider' }}>
+              <TextField
+                label="Filter by Tag"
+                size="small"
+                fullWidth
+                value={filters.tagFilter}
+                onChange={(e) => handleFilterChange('tagFilter', e.target.value)}
+                placeholder="Enter tag name..."
+                sx={{ mb: 2 }}
+              />
+              
+              <Box sx={{ display: 'flex', gap: 1 }}>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  onClick={handleClearFilters}
+                  startIcon={<ClearIcon />}
+                >
+                  Clear Filters
+                </Button>
+                
+                {isAdmin && (
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    onClick={handleClearCache}
+                    startIcon={<RefreshIcon />}
+                  >
+                    Clear Cache
+                  </Button>
+                )}
+              </Box>
+              
+              {cacheInfo && isAdmin && (
+                <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+                  Cache: {cacheInfo.size} items, {cacheInfo.activeListeners} listeners
+                </Typography>
+              )}
+            </Box>
+          )}
         </Paper>
 
         {/* Member Cards */}
@@ -725,7 +902,7 @@ const MemberTable: React.FC<MemberTableProps> = ({
                     <Typography variant="body2" color="text.secondary">
                       {getSafeValue(member?.membership?.type, 'No Membership')}
                       {member?.membership?.type === 'Recurring' && member?.membership?.monthlyAmount && 
-                        ` - $${member.membership.monthlyAmount}/month`
+                        ` - ${member.membership.monthlyAmount}/month`
                       }
                       {member?.membership?.type === 'Prepaid' && member?.membership?.remainingCredits !== undefined && 
                         ` - ${member.membership.remainingCredits} credits left`
@@ -742,7 +919,7 @@ const MemberTable: React.FC<MemberTableProps> = ({
 
                 {member.tags && member.tags.length > 0 && (
                   <Box sx={{ mt: 1, display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                    {member.tags.map((tag) => (
+                    {member.tags.slice(0, 3).map((tag) => (
                       <Chip
                         key={tag}
                         label={tag}
@@ -752,6 +929,14 @@ const MemberTable: React.FC<MemberTableProps> = ({
                         sx={{ fontSize: '0.75rem' }}
                       />
                     ))}
+                    {member.tags.length > 3 && (
+                      <Chip
+                        label={`+${member.tags.length - 3}`}
+                        size="small"
+                        variant="outlined"
+                        sx={{ fontSize: '0.75rem' }}
+                      />
+                    )}
                   </Box>
                 )}
               </CardContent>
@@ -759,60 +944,22 @@ const MemberTable: React.FC<MemberTableProps> = ({
           ))}
         </Box>
 
-        {/* Admin Action Menu */}
+        {/* Floating Action Button for Advanced Functions */}
         {isAdmin && (
-          <Menu
-            anchorEl={anchorEl}
-            open={Boolean(anchorEl)}
-            onClose={handleMenuClose}
-            transformOrigin={{ horizontal: 'right', vertical: 'top' }}
-            anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
+          <Fab
+            sx={{
+              position: 'fixed',
+              bottom: 16,
+              left: 16,
+              zIndex: theme.zIndex.speedDial,
+            }}
+            size="small"
+            color="secondary"
+            onClick={handleRefresh}
+            disabled={loading.refresh}
           >
-            {selectedMember && (
-              <>
-                <MenuItemComponent onClick={() => onEdit(selectedMember)}>
-                  <EditIcon sx={{ mr: 1 }} />
-                  Edit Member
-                </MenuItemComponent>
-                
-                <Divider />
-                
-                <MenuItemComponent 
-                  onClick={() => handleStatusClick(selectedMember, 'Active')}
-                  disabled={selectedMember?.membership?.status === 'Active'}
-                >
-                  <CheckCircleIcon sx={{ mr: 1 }} />
-                  Mark Active
-                </MenuItemComponent>
-                
-                <MenuItemComponent 
-                  onClick={() => handleStatusClick(selectedMember, 'Paused')}
-                  disabled={selectedMember?.membership?.status === 'Paused'}
-                >
-                  <PauseCircleIcon sx={{ mr: 1 }} />
-                  Mark Paused
-                </MenuItemComponent>
-                
-                <MenuItemComponent 
-                  onClick={() => handleStatusClick(selectedMember, 'Overdue')}
-                  disabled={selectedMember?.membership?.status === 'Overdue'}
-                >
-                  <ErrorIcon sx={{ mr: 1 }} />
-                  Mark Overdue
-                </MenuItemComponent>
-                
-                <Divider />
-                
-                <MenuItemComponent 
-                  onClick={() => handleDeleteClick(selectedMember)}
-                  sx={{ color: 'error.main' }}
-                >
-                  <DeleteIcon sx={{ mr: 1 }} />
-                  Deactivate
-                </MenuItemComponent>
-              </>
-            )}
-          </Menu>
+            {loading.refresh ? <CircularProgress size={24} /> : <RefreshIcon />}
+          </Fab>
         )}
       </>
     );
@@ -843,19 +990,31 @@ const MemberTable: React.FC<MemberTableProps> = ({
       <Paper sx={{ mb: 2 }}>
         <Tabs 
           value={tabValue} 
-          onChange={(_, newValue) => setTabValue(newValue)}
+          onChange={handleTabChange}
           sx={{ borderBottom: 1, borderColor: 'divider' }}
         >
           <Tab label={`All Members (${memberStats.all})`} />
-          <Tab label={`Active (${memberStats.active})`} />
-          <Tab label={`Inactive (${memberStats.inactive})`} />
+          <Tab 
+            label={
+              <Badge badgeContent={memberStats.active} color="success" showZero>
+                Active
+              </Badge>
+            } 
+          />
+          <Tab 
+            label={
+              <Badge badgeContent={memberStats.inactive} color="warning" showZero>
+                Inactive
+              </Badge>
+            } 
+          />
         </Tabs>
         
-        <Box sx={{ p: 2, display: 'flex', gap: 2, alignItems: 'center' }}>
+        <Box sx={{ p: 2, display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
           <TextField
             placeholder="Search members..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+            value={filters.searchTerm}
+            onChange={(e) => handleFilterChange('searchTerm', e.target.value)}
             size="small"
             sx={{ minWidth: 300 }}
             InputProps={{
@@ -864,15 +1023,20 @@ const MemberTable: React.FC<MemberTableProps> = ({
                   <SearchIcon />
                 </InputAdornment>
               ),
+              endAdornment: loading.search && (
+                <InputAdornment position="end">
+                  <CircularProgress size={20} />
+                </InputAdornment>
+              ),
             }}
           />
           
           <FormControl size="small" sx={{ minWidth: 120 }}>
             <InputLabel>Status</InputLabel>
             <Select
-              value={statusFilter}
+              value={filters.statusFilter}
               label="Status"
-              onChange={(e) => setStatusFilter(e.target.value as any)}
+              onChange={(e) => handleFilterChange('statusFilter', e.target.value)}
             >
               <MenuItem value="all">All Status</MenuItem>
               <MenuItem value="Active">Active</MenuItem>
@@ -885,9 +1049,9 @@ const MemberTable: React.FC<MemberTableProps> = ({
           <FormControl size="small" sx={{ minWidth: 120 }}>
             <InputLabel>Type</InputLabel>
             <Select
-              value={membershipTypeFilter}
+              value={filters.membershipTypeFilter}
               label="Type"
-              onChange={(e) => setMembershipTypeFilter(e.target.value as any)}
+              onChange={(e) => handleFilterChange('membershipTypeFilter', e.target.value)}
             >
               <MenuItem value="all">All Types</MenuItem>
               <MenuItem value="Recurring">Recurring</MenuItem>
@@ -904,10 +1068,49 @@ const MemberTable: React.FC<MemberTableProps> = ({
             Refresh
           </Button>
 
+          {isAdmin && (
+            <Button
+              onClick={handleClearCache}
+              size="small"
+              variant="outlined"
+              startIcon={<ClearIcon />}
+            >
+              Clear Cache
+            </Button>
+          )}
+
           <Typography variant="body2" color="text.secondary" sx={{ ml: 'auto' }}>
             Showing {filteredMembers.length} of {memberList.length} members
           </Typography>
         </Box>
+
+        {showAdvancedFilters && (
+          <Box sx={{ px: 2, pb: 2 }}>
+            <TextField
+              label="Filter by Tag"
+              size="small"
+              value={filters.tagFilter}
+              onChange={(e) => handleFilterChange('tagFilter', e.target.value)}
+              placeholder="Enter tag name..."
+              sx={{ mr: 2, minWidth: 200 }}
+            />
+            
+            <Button
+              size="small"
+              variant="outlined"
+              onClick={handleClearFilters}
+              startIcon={<ClearIcon />}
+            >
+              Clear All Filters
+            </Button>
+
+            {cacheInfo && isAdmin && (
+              <Typography variant="caption" color="text.secondary" sx={{ ml: 2 }}>
+                Cache: {cacheInfo.size} items, {cacheInfo.activeListeners} active listeners
+              </Typography>
+            )}
+          </Box>
+        )}
       </Paper>
 
       {/* Desktop Table */}
@@ -1239,7 +1442,7 @@ const MemberTable: React.FC<MemberTableProps> = ({
       </Dialog>
 
       {/* No filtered results */}
-      {filteredMembers.length === 0 && memberList.length > 0 && !loading.refresh && (
+      {filteredMembers.length === 0 && memberList.length > 0 && !loading.refresh && !loading.search && (
         <Paper sx={{ p: 3, mt: 2, textAlign: 'center' }}>
           <FilterListIcon sx={{ fontSize: 60, color: 'text.secondary', mb: 2 }} />
           <Typography variant="h6" color="text.secondary" sx={{ mb: 1 }}>
@@ -1250,12 +1453,8 @@ const MemberTable: React.FC<MemberTableProps> = ({
           </Typography>
           <Button 
             variant="outlined" 
-            onClick={() => {
-              setSearchTerm('');
-              setStatusFilter('all');
-              setMembershipTypeFilter('all');
-              setTabValue(0);
-            }}
+            onClick={handleClearFilters}
+            startIcon={<ClearIcon />}
           >
             Clear Filters
           </Button>

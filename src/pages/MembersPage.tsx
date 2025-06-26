@@ -1,6 +1,6 @@
-// src/pages/MembersPage.tsx - Fixed props issues
+// src/pages/MembersPage.tsx - Optimized with efficient data management
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import {
     Typography,
     Box,
@@ -12,6 +12,9 @@ import {
     Paper,
     SpeedDial,
     SpeedDialAction,
+    Alert,
+    Snackbar,
+    CircularProgress,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import GroupIcon from '@mui/icons-material/Group';
@@ -23,12 +26,25 @@ import AttachMoneyIcon from '@mui/icons-material/AttachMoney';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import EmojiEventsIcon from '@mui/icons-material/EmojiEvents';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
+import RefreshIcon from '@mui/icons-material/Refresh';
 import MemberTable from '../components/MemberTable';
 import MemberForm from '../components/MemberForm';
 import BeltLevelManagement from '../components/BeltLevelManagement';
 import ProtectedComponent from '../components/ProtectedComponent';
 import { useRoleControl } from '../hooks/useRoleControl';
-import { MemberRecord, MemberStats } from '../types/members';
+import { MemberRecord } from '../types/members';
+import { getMemberStats, clearMemberCache, getCacheStats } from '../services/memberService';
+
+interface MemberStats {
+    totalMembers: number;
+    activeMembers: number;
+    pausedMembers: number;
+    overdueMembers: number;
+    noMembershipCount: number;
+    newThisMonth: number;
+    recurringRevenue: number;
+    prepaidRevenue: number;
+}
 
 const MembersPage = () => {
     const [openForm, setOpenForm] = useState(false);
@@ -37,28 +53,55 @@ const MembersPage = () => {
     const [editData, setEditData] = useState<MemberRecord | undefined>(undefined);
     const [memberList, setMemberList] = useState<MemberRecord[]>([]);
     const [speedDialOpen, setSpeedDialOpen] = useState(false);
+    const [stats, setStats] = useState<MemberStats>({
+        totalMembers: 0,
+        activeMembers: 0,
+        pausedMembers: 0,
+        overdueMembers: 0,
+        noMembershipCount: 0,
+        newThisMonth: 0,
+        recurringRevenue: 0,
+        prepaidRevenue: 0,
+    });
+    const [statsLoading, setStatsLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+    const [cacheInfo, setCacheInfo] = useState<any>(null);
 
     const theme = useTheme();
     const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
     const { isAdmin } = useRoleControl();
 
-    // Calculate real stats from data
-    const stats = useMemo(() => {
-        if (memberList.length === 0) {
-            return {
-                totalMembers: 0,
-                activeMembers: 0,
-                pausedMembers: 0,
-                overdueMembers: 0,
-                noMembershipCount: 0,
-                newThisMonth: 0,
-                recurringRevenue: 0,
-                prepaidRevenue: 0,
-            };
+    // Load stats efficiently
+    const loadStats = useCallback(async (useCache = true) => {
+        try {
+            setStatsLoading(true);
+            setError(null);
+            
+            const memberStats = await getMemberStats(useCache);
+            setStats(memberStats);
+            
+            // Update cache info
+            setCacheInfo(getCacheStats());
+        } catch (err: any) {
+            console.error('Error loading member stats:', err);
+            setError('Failed to load member statistics');
+        } finally {
+            setStatsLoading(false);
         }
+    }, []);
 
+    // Initial stats load
+    useEffect(() => {
+        loadStats();
+    }, [loadStats]);
+
+    // Handle data loaded from MemberTable - calculate stats from actual data
+    const handleDataLoaded = useCallback(({ memberList }: { memberList: MemberRecord[] }) => {
+        setMemberList(memberList);
+        
+        // Calculate real-time stats from loaded data
         const currentMonth = new Date();
-        currentMonth.setDate(1); // First day of current month
+        currentMonth.setDate(1);
 
         const calculatedStats = {
             totalMembers: memberList.length,
@@ -90,9 +133,13 @@ const MembersPage = () => {
 
             // Count new members this month
             if (member.joinDate) {
-                const joinDate = member.joinDate.toDate();
-                if (joinDate >= currentMonth) {
-                    calculatedStats.newThisMonth++;
+                try {
+                    const joinDate = member.joinDate.toDate();
+                    if (joinDate >= currentMonth) {
+                        calculatedStats.newThisMonth++;
+                    }
+                } catch (error) {
+                    console.warn('Error parsing join date for member:', member.id);
                 }
             }
 
@@ -100,49 +147,51 @@ const MembersPage = () => {
             if (member?.membership?.status === 'Active') {
                 if (member.membership.type === 'Recurring' && member.membership.monthlyAmount) {
                     calculatedStats.recurringRevenue += member.membership.monthlyAmount;
-                } else if (member.membership.type === 'Prepaid' && member.membership.totalAmount) {
-                    // For prepaid, we don't add to monthly recurring revenue
-                    // but we could track it separately if needed
                 }
             }
         });
 
-        return calculatedStats;
-    }, [memberList]);
+        setStats(calculatedStats);
+        setStatsLoading(false);
+    }, []);
 
-    // Handle data loaded from MemberTable
-    const handleDataLoaded = ({ memberList }: { memberList: MemberRecord[] }) => {
-        setMemberList(memberList);
-    };
-
-    const handleFormClose = () => {
+    const handleFormClose = useCallback(() => {
         setOpenForm(false);
         setEditData(undefined);
         // Trigger a refresh by changing the key prop
         setRefreshTrigger(prev => prev + 1);
-    };
+        // Reload stats
+        loadStats(false);
+    }, [loadStats]);
 
-    const handleBeltManagementClose = () => {
+    const handleBeltManagementClose = useCallback(() => {
         setOpenBeltManagement(false);
         // Trigger a refresh to update any belt/level data
         setRefreshTrigger(prev => prev + 1);
-    };
+    }, []);
 
-    const handleEdit = (memberData: MemberRecord) => {
+    const handleEdit = useCallback((memberData: MemberRecord) => {
         setEditData(memberData);
         setOpenForm(true);
-    };
+    }, []);
 
-    const handleAddNew = () => {
+    const handleAddNew = useCallback(() => {
         setEditData(undefined);
         setOpenForm(true);
         setSpeedDialOpen(false);
-    };
+    }, []);
 
-    const handleOpenBeltManagement = () => {
+    const handleOpenBeltManagement = useCallback(() => {
         setOpenBeltManagement(true);
         setSpeedDialOpen(false);
-    };
+    }, []);
+
+    const handleClearCache = useCallback(() => {
+        clearMemberCache();
+        setCacheInfo(getCacheStats());
+        setRefreshTrigger(prev => prev + 1);
+        loadStats(false);
+    }, [loadStats]);
 
     const speedDialActions = [
         {
@@ -155,7 +204,20 @@ const MembersPage = () => {
             name: 'Manage Belts & Levels',
             onClick: handleOpenBeltManagement,
         },
+        ...(isAdmin ? [{
+            icon: <RefreshIcon />,
+            name: 'Clear Cache',
+            onClick: handleClearCache,
+        }] : []),
     ];
+
+    // Auto-clear error message
+    useEffect(() => {
+        if (error) {
+            const timer = setTimeout(() => setError(null), 5000);
+            return () => clearTimeout(timer);
+        }
+    }, [error]);
 
     return (
         <>
@@ -166,6 +228,18 @@ const MembersPage = () => {
                     px: { xs: 2, sm: 3 }
                 }}
             >
+                {/* Error Snackbar */}
+                <Snackbar
+                    open={!!error}
+                    autoHideDuration={5000}
+                    onClose={() => setError(null)}
+                    anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+                >
+                    <Alert severity="error" onClose={() => setError(null)}>
+                        {error}
+                    </Alert>
+                </Snackbar>
+
                 {/* Header Section */}
                 <Box sx={{
                     display: 'flex',
@@ -190,9 +264,16 @@ const MembersPage = () => {
                         <Typography variant="body1" color="text.secondary">
                             {isAdmin ? 'Manage your gym members, leads, and guest registrations' : 'View member information and statistics'}
                         </Typography>
+                        
+                        {/* Cache Info for Admin */}
+                        {isAdmin && cacheInfo && (
+                            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                                Cache: {cacheInfo.size} items • {cacheInfo.activeListeners} active listeners
+                            </Typography>
+                        )}
                     </Box>
 
-                    {/* Desktop Buttons - Sadece admin için */}
+                    {/* Desktop Buttons - Admin only */}
                     <ProtectedComponent allowedRoles={['admin']}>
                         {!isMobile && (
                             <Box sx={{ display: 'flex', gap: 1 }}>
@@ -235,7 +316,7 @@ const MembersPage = () => {
                     </ProtectedComponent>
                 </Box>
 
-                {/* Stats Cards - Sadece admin için */}
+                {/* Stats Cards - Admin only */}
                 <ProtectedComponent allowedRoles={['admin']}>
                     <Box sx={{
                         display: 'grid',
@@ -251,9 +332,13 @@ const MembersPage = () => {
                             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', mb: 1 }}>
                                 <GroupIcon sx={{ fontSize: 32, color: 'primary.main' }} />
                             </Box>
-                            <Typography variant="h4" color="primary" fontWeight="bold">
-                                {stats.totalMembers}
-                            </Typography>
+                            {statsLoading ? (
+                                <CircularProgress size={24} />
+                            ) : (
+                                <Typography variant="h4" color="primary" fontWeight="bold">
+                                    {stats.totalMembers}
+                                </Typography>
+                            )}
                             <Typography variant="body2" color="text.secondary">
                                 Total Members
                             </Typography>
@@ -263,9 +348,13 @@ const MembersPage = () => {
                             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', mb: 1 }}>
                                 <CheckCircleIcon sx={{ fontSize: 32, color: 'success.main' }} />
                             </Box>
-                            <Typography variant="h4" color="success.main" fontWeight="bold">
-                                {stats.activeMembers}
-                            </Typography>
+                            {statsLoading ? (
+                                <CircularProgress size={24} />
+                            ) : (
+                                <Typography variant="h4" color="success.main" fontWeight="bold">
+                                    {stats.activeMembers}
+                                </Typography>
+                            )}
                             <Typography variant="body2" color="text.secondary">
                                 Active Members
                             </Typography>
@@ -275,9 +364,13 @@ const MembersPage = () => {
                             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', mb: 1 }}>
                                 <AttachMoneyIcon sx={{ fontSize: 32, color: 'success.main' }} />
                             </Box>
-                            <Typography variant="h4" color="success.main" fontWeight="bold">
-                                ${stats.recurringRevenue.toLocaleString()}
-                            </Typography>
+                            {statsLoading ? (
+                                <CircularProgress size={24} />
+                            ) : (
+                                <Typography variant="h4" color="success.main" fontWeight="bold">
+                                    ${stats.recurringRevenue.toLocaleString()}
+                                </Typography>
+                            )}
                             <Typography variant="body2" color="text.secondary">
                                 Monthly Recurring Revenue
                             </Typography>
@@ -287,9 +380,13 @@ const MembersPage = () => {
                             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', mb: 1 }}>
                                 <TrendingUpIcon sx={{ fontSize: 32, color: 'warning.main' }} />
                             </Box>
-                            <Typography variant="h4" color="warning.main" fontWeight="bold">
-                                {stats.newThisMonth}
-                            </Typography>
+                            {statsLoading ? (
+                                <CircularProgress size={24} />
+                            ) : (
+                                <Typography variant="h4" color="warning.main" fontWeight="bold">
+                                    {stats.newThisMonth}
+                                </Typography>
+                            )}
                             <Typography variant="body2" color="text.secondary">
                                 New This Month
                             </Typography>
@@ -310,9 +407,13 @@ const MembersPage = () => {
                             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', mb: 1 }}>
                                 <PauseCircleIcon sx={{ fontSize: 24, color: 'warning.main' }} />
                             </Box>
-                            <Typography variant="h6" color="warning.main" fontWeight="bold">
-                                {stats.pausedMembers}
-                            </Typography>
+                            {statsLoading ? (
+                                <CircularProgress size={20} />
+                            ) : (
+                                <Typography variant="h6" color="warning.main" fontWeight="bold">
+                                    {stats.pausedMembers}
+                                </Typography>
+                            )}
                             <Typography variant="caption" color="text.secondary">
                                 Paused
                             </Typography>
@@ -322,9 +423,13 @@ const MembersPage = () => {
                             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', mb: 1 }}>
                                 <ErrorIcon sx={{ fontSize: 24, color: 'error.main' }} />
                             </Box>
-                            <Typography variant="h6" color="error.main" fontWeight="bold">
-                                {stats.overdueMembers}
-                            </Typography>
+                            {statsLoading ? (
+                                <CircularProgress size={20} />
+                            ) : (
+                                <Typography variant="h6" color="error.main" fontWeight="bold">
+                                    {stats.overdueMembers}
+                                </Typography>
+                            )}
                             <Typography variant="caption" color="text.secondary">
                                 Overdue
                             </Typography>
@@ -334,18 +439,26 @@ const MembersPage = () => {
                             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', mb: 1 }}>
                                 <PersonOffIcon sx={{ fontSize: 24, color: 'text.secondary' }} />
                             </Box>
-                            <Typography variant="h6" color="text.secondary" fontWeight="bold">
-                                {stats.noMembershipCount}
-                            </Typography>
+                            {statsLoading ? (
+                                <CircularProgress size={20} />
+                            ) : (
+                                <Typography variant="h6" color="text.secondary" fontWeight="bold">
+                                    {stats.noMembershipCount}
+                                </Typography>
+                            )}
                             <Typography variant="caption" color="text.secondary">
                                 No Membership
                             </Typography>
                         </Paper>
 
                         <Paper sx={{ p: 2, textAlign: 'center' }}>
-                            <Typography variant="h6" color="primary.main" fontWeight="bold">
-                                {stats.totalMembers > 0 ? Math.round((stats.activeMembers / stats.totalMembers) * 100) : 0}%
-                            </Typography>
+                            {statsLoading ? (
+                                <CircularProgress size={20} />
+                            ) : (
+                                <Typography variant="h6" color="primary.main" fontWeight="bold">
+                                    {stats.totalMembers > 0 ? Math.round((stats.activeMembers / stats.totalMembers) * 100) : 0}%
+                                </Typography>
+                            )}
                             <Typography variant="caption" color="text.secondary">
                                 Active Rate
                             </Typography>
@@ -367,7 +480,7 @@ const MembersPage = () => {
                 </Box>
             </Container>
 
-            {/* Mobile Speed Dial - Sadece admin için */}
+            {/* Mobile Speed Dial - Admin only */}
             <ProtectedComponent allowedRoles={['admin']}>
                 {isMobile && (
                     <SpeedDial
@@ -395,7 +508,7 @@ const MembersPage = () => {
                 )}
             </ProtectedComponent>
 
-            {/* Member Form Modal - Sadece admin için */}
+            {/* Member Form Modal - Admin only */}
             <ProtectedComponent allowedRoles={['admin']}>
                 <MemberForm
                     open={openForm}
@@ -404,7 +517,7 @@ const MembersPage = () => {
                 />
             </ProtectedComponent>
 
-            {/* Belt & Level Management Modal - Sadece admin için */}
+            {/* Belt & Level Management Modal - Admin only */}
             <ProtectedComponent allowedRoles={['admin']}>
                 <BeltLevelManagement
                     open={openBeltManagement}

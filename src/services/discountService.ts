@@ -31,61 +31,80 @@ import {
 
 // CREATE DISCOUNT
 export const createDiscount = async (
-  formData: DiscountFormData,
-  createdBy: string,
-  createdByName: string
-): Promise<DiscountRecord> => {
-  try {
-    console.log('Creating discount code:', formData.code);
-
-    // Check if discount code already exists
-    const existingDiscount = await getDiscountByCode(formData.code);
-    if (existingDiscount) {
-      throw new Error('Discount code already exists. Please choose a different code.');
+    formData: DiscountFormData,
+    createdBy: string,
+    createdByName: string
+  ): Promise<DiscountRecord> => {
+    try {
+      console.log('Creating discount code:', formData.code);
+  
+      // Check if discount code already exists
+      const existingDiscount = await getDiscountByCode(formData.code);
+      if (existingDiscount) {
+        throw new Error('Discount code already exists. Please choose a different code.');
+      }
+  
+      // Convert form data to discount data and filter out undefined values
+      const discountData: any = {
+        code: formData.code.toUpperCase().trim(),
+        name: formData.name.trim(),
+        type: formData.type,
+        value: formData.value,
+        currentUses: 0,
+        startDate: Timestamp.fromDate(formData.startDate),
+        appliesTo: formData.appliesTo,
+        status: 'Active' as DiscountStatus,
+        isActive: formData.isActive,
+        createdAt: Timestamp.now(),
+        updatedAt: Timestamp.now(),
+        createdBy,
+        createdByName,
+      };
+  
+      // Only add optional fields if they have values
+      if (formData.description && formData.description.trim()) {
+        discountData.description = formData.description.trim();
+      }
+  
+      if (formData.maxUses && formData.maxUses > 0) {
+        discountData.maxUses = formData.maxUses;
+      }
+  
+      if (formData.maxUsesPerUser && formData.maxUsesPerUser > 0) {
+        discountData.maxUsesPerUser = formData.maxUsesPerUser;
+      }
+  
+      if (formData.endDate) {
+        discountData.endDate = Timestamp.fromDate(formData.endDate);
+      }
+  
+      if (formData.specificItemIds && formData.specificItemIds.length > 0) {
+        discountData.specificItemIds = formData.specificItemIds;
+      }
+  
+      if (formData.minimumAmount && formData.minimumAmount > 0) {
+        discountData.minimumAmount = formData.minimumAmount;
+      }
+  
+      // Validate data
+      const validation = validateDiscountData(discountData);
+      if (!validation.isValid) {
+        throw new Error(validation.error);
+      }
+  
+      const docRef = await addDoc(collection(db, 'discounts'), discountData);
+      
+      console.log('Discount created successfully with ID:', docRef.id);
+      
+      return {
+        id: docRef.id,
+        ...discountData,
+      };
+    } catch (error) {
+      console.error('Error creating discount:', error);
+      throw error;
     }
-
-    // Convert form data to discount data
-    const discountData: DiscountData = {
-      code: formData.code.toUpperCase().trim(),
-      name: formData.name.trim(),
-      description: formData.description?.trim(),
-      type: formData.type,
-      value: formData.value,
-      maxUses: formData.maxUses,
-      maxUsesPerUser: formData.maxUsesPerUser,
-      currentUses: 0,
-      startDate: Timestamp.fromDate(formData.startDate),
-      endDate: formData.endDate ? Timestamp.fromDate(formData.endDate) : undefined,
-      appliesTo: formData.appliesTo,
-      specificItemIds: formData.specificItemIds,
-      minimumAmount: formData.minimumAmount,
-      status: 'Active',
-      isActive: formData.isActive,
-      createdAt: Timestamp.now(),
-      updatedAt: Timestamp.now(),
-      createdBy,
-      createdByName,
-    };
-
-    // Validate data
-    const validation = validateDiscountData(discountData);
-    if (!validation.isValid) {
-      throw new Error(validation.error);
-    }
-
-    const docRef = await addDoc(collection(db, 'discounts'), discountData);
-    
-    console.log('Discount created successfully with ID:', docRef.id);
-    
-    return {
-      id: docRef.id,
-      ...discountData,
-    };
-  } catch (error) {
-    console.error('Error creating discount:', error);
-    throw error;
-  }
-};
+  };
 
 // GET ALL DISCOUNTS
 export const getAllDiscounts = async (): Promise<DiscountRecord[]> => {

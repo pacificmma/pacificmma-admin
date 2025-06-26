@@ -1,4 +1,4 @@
-// src/types/discounts.ts
+// src/types/discounts.ts - Fixed with proper optional handling
 
 import { Timestamp } from 'firebase/firestore';
 
@@ -11,17 +11,17 @@ export type DiscountType = 'percentage' | 'fixed_amount';
 // What the discount applies to
 export type DiscountAppliesTo = 'all' | 'classes' | 'workshops' | 'packages' | 'specific_items';
 
-// Base discount data
+// Base discount data - this represents what's stored in Firestore
 export interface DiscountData {
   code: string; // The actual discount code (e.g., "SAVE20")
   name: string; // Display name (e.g., "20% Off Summer Classes")
-  description?: string;
+  description?: string; // Optional description
   
   // Discount details
   type: DiscountType;
   value: number; // Percentage (0-100) or fixed amount
   
-  // Usage limits
+  // Usage limits - optional
   maxUses?: number; // Total number of uses allowed (undefined = unlimited)
   maxUsesPerUser?: number; // Max uses per user (undefined = unlimited)
   currentUses: number; // Track current usage
@@ -34,7 +34,7 @@ export interface DiscountData {
   appliesTo: DiscountAppliesTo;
   specificItemIds?: string[]; // If appliesTo is 'specific_items'
   
-  // Minimum requirements
+  // Minimum requirements - optional
   minimumAmount?: number; // Minimum purchase amount
   
   // Status
@@ -53,7 +53,7 @@ export interface DiscountRecord extends DiscountData {
   id: string;
 }
 
-// Form data for creating/editing discounts
+// Form data for creating/editing discounts - uses Date objects for form handling
 export interface DiscountFormData {
   code: string;
   name: string;
