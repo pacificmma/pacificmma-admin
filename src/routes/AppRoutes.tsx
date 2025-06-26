@@ -10,12 +10,24 @@ import DiscountsPage from '../pages/DiscountsPage';
 const AppRoutes = () => (
   <Routes>
     <Route element={<AdminLayout />}>
-       <Route path="/classes" element={<ClassesPage />} />
-       <Route path="/my-schedule" element={<MySchedulePage />} />
-       <Route path="/dashboard" element={<DashboardPage />} />
+      {/* Default route - redirect to classes for all users */}
+      <Route path="/" element={<Navigate to="/classes" replace />} />
+      
+      {/* Classes - accessible to all users */}
+      <Route path="/classes" element={<ClassesPage />} />
+      
+      {/* My Schedule - for trainers and staff */}
+      <Route path="/my-schedule" element={<MySchedulePage />} />
+      
+      {/* Dashboard - admin only */}
+      <Route path="/dashboard" element={<DashboardPage />} />
+      
+      {/* Admin only routes */}
       <Route path="/members" element={<MembersPage />} />
       <Route path="/discounts" element={<DiscountsPage />} />
-       <Route path="/staff" element={<StaffPage />} />
+      <Route path="/staff" element={<StaffPage />} />
+      
+      {/* Catch all - redirect to classes */}
       <Route path="*" element={<Navigate to="/classes" replace />} />
     </Route>
   </Routes>

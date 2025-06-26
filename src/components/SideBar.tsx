@@ -42,11 +42,13 @@ const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, handleDrawerToggle }) => 
 
         const items = [];
 
-        // Herkes için dashboard ve classes
-        items.push(
-            { text: 'Dashboard', icon: <DashboardIcon />, path: '/dashboard' },
-            { text: 'Classes', icon: <FitnessCenterIcon />, path: '/classes' }
-        );
+        // Sadece admin için dashboard
+        if (isAdmin) {
+            items.push({ text: 'Dashboard', icon: <DashboardIcon />, path: '/dashboard' });
+        }
+
+        // Herkes için classes
+        items.push({ text: 'Classes', icon: <FitnessCenterIcon />, path: '/classes' });
 
         // Trainer/Staff için özel schedule
         if (isTrainer || isStaff) {
