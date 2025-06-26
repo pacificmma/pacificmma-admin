@@ -1,4 +1,4 @@
-// src/pages/DashboardPage.tsx - Updated with real data integration
+// src/pages/DashboardPage.tsx - Düzeltilmiş versiyon
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   Typography,
@@ -27,9 +27,9 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import ProtectedComponent from '../components/ProtectedComponent';
 import { useRoleControl } from '../hooks/useRoleControl';
 import { getAllClasses, getAllPackages, ClassRecord, PackageRecord } from '../services/classService';
-import { getMemberStats, MemberStats } from '../services/memberService';
+import { getMemberStats } from '../services/memberService';
 import { getAllDiscounts, DiscountRecord } from '../services/discountService';
-import { format, isToday, isTomorrow, addDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from 'date-fns';
+import { format, isToday, isTomorrow, addDays, startOfWeek, endOfWeek } from 'date-fns';
 
 interface DashboardStats {
   totalClasses: number;
@@ -39,7 +39,7 @@ interface DashboardStats {
   weeklyClasses: number;
   totalEnrollment: number;
   avgCapacityUtilization: number;
-  memberStats: MemberStats;
+  memberStats: any;
   activeDiscounts: number;
   totalDiscounts: number;
   monthlyRecurringRevenue: number;
@@ -59,13 +59,30 @@ const DashboardPage = () => {
 
       console.log('Loading dashboard data...');
 
-      // Load all data in parallel
-      const [classes, packages, memberStats, discounts] = await Promise.all([
+      // Load all data with proper error handling
+      const results = await Promise.allSettled([
         getAllClasses(),
         getAllPackages(),
         getMemberStats(),
         getAllDiscounts(),
       ]);
+
+      const [classesResult, packagesResult, memberStatsResult, discountsResult] = results;
+
+      // Extract data or use defaults
+      const classes = classesResult.status === 'fulfilled' ? classesResult.value : [];
+      const packages = packagesResult.status === 'fulfilled' ? packagesResult.value : [];
+      const memberStats = memberStatsResult.status === 'fulfilled' ? memberStatsResult.value : {
+        totalMembers: 0,
+        activeMembers: 0,
+        pausedMembers: 0,
+        overdueMembers: 0,
+        noMembershipCount: 0,
+        newThisMonth: 0,
+        recurringRevenue: 0,
+        prepaidRevenue: 0,
+      };
+      const discounts = discountsResult.status === 'fulfilled' ? discountsResult.value : [];
 
       console.log('Dashboard data loaded:', {
         classes: classes.length,
@@ -74,37 +91,70 @@ const DashboardPage = () => {
         discounts: discounts.length,
       });
 
-      // Calculate class statistics
+      // Calculate class statistics safely
       const now = new Date();
       const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      const tomorrow = addDays(today, 1);
       const weekStart = startOfWeek(now);
       const weekEnd = endOfWeek(now);
 
       // Filter upcoming classes (not past)
-      const upcomingClasses = classes.filter(c => c.date.toDate() >= today);
+      const upcomingClasses = classes.filter(c => {
+        try {
+          return c.date && c.date.toDate() >= today;
+        } catch (error) {
+          console.warn('Invalid date in class:', c.id);
+          return false;
+        }
+      });
+
       const todayClasses = classes.filter(c => {
-        const classDate = c.date.toDate();
-        return isToday(classDate);
+        try {
+          return c.date && isToday(c.date.toDate());
+        } catch (error) {
+          console.warn('Invalid date in class:', c.id);
+          return false;
+        }
       });
 
       const weeklyClasses = classes.filter(c => {
-        const classDate = c.date.toDate();
-        return classDate >= weekStart && classDate <= weekEnd;
+        try {
+          if (!c.date) return false;
+          const classDate = c.date.toDate();
+          return classDate >= weekStart && classDate <= weekEnd;
+        } catch (error) {
+          console.warn('Invalid date in class:', c.id);
+          return false;
+        }
       });
 
-      // Calculate enrollment and capacity
-      const totalEnrollment = classes.reduce((sum, c) => sum + (c.currentEnrollment || 0), 0);
-      const totalCapacity = classes.reduce((sum, c) => sum + (c.capacity || 0), 0);
-      const avgCapacityUtilization = totalCapacity > 0 ? Math.round((totalEnrollment / totalCapacity) * 100) : 0;
-
-      // Package session enrollment
-      const packageSessionEnrollment = packages.reduce((total, pkg) => {
-        return total + (pkg.sessions?.reduce((sum: number, session: any) => sum + (session.currentEnrollment || 0), 0) || 0);
+      // Calculate enrollment and capacity safely
+      const totalEnrollment = classes.reduce((sum, c) => {
+        return sum + (typeof c.currentEnrollment === 'number' ? c.currentEnrollment : 0);
       }, 0);
 
-      // Active discounts
-      const activeDiscounts = discounts.filter(d => d.status === 'Active' && d.isActive).length;
+      const totalCapacity = classes.reduce((sum, c) => {
+        return sum + (typeof c.capacity === 'number' ? c.capacity : 0);
+      }, 0);
+
+      const avgCapacityUtilization = totalCapacity > 0 ? Math.round((totalEnrollment / totalCapacity) * 100) : 0;
+
+      // Package session enrollment safely
+      const packageSessionEnrollment = packages.reduce((total, pkg) => {
+        if (!Array.isArray(pkg.sessions)) return total;
+        return total + pkg.sessions.reduce((sum, session) => {
+          return sum + (typeof session.currentEnrollment === 'number' ? session.currentEnrollment : 0);
+        }, 0);
+      }, 0);
+
+      // Active discounts safely
+      const activeDiscounts = discounts.filter(d => {
+        try {
+          return d.status === 'Active' && d.isActive;
+        } catch (error) {
+          console.warn('Invalid discount data:', d.id);
+          return false;
+        }
+      }).length;
 
       const dashboardStats: DashboardStats = {
         totalClasses: classes.length,
@@ -117,7 +167,7 @@ const DashboardPage = () => {
         memberStats,
         activeDiscounts,
         totalDiscounts: discounts.length,
-        monthlyRecurringRevenue: memberStats.recurringRevenue,
+        monthlyRecurringRevenue: memberStats.recurringRevenue || 0,
       };
 
       setStats(dashboardStats);
@@ -142,18 +192,18 @@ const DashboardPage = () => {
     loadDashboardData();
   };
 
-  // Quick stats for overview
+  // Quick stats for overview - with safe access
   const quickStats = useMemo(() => {
     if (!stats) return [];
 
     return [
       {
         title: 'Active Members',
-        value: stats.memberStats.activeMembers,
-        total: stats.memberStats.totalMembers,
+        value: stats.memberStats?.activeMembers || 0,
+        total: stats.memberStats?.totalMembers || 0,
         icon: <GroupIcon sx={{ fontSize: 40, color: 'primary.main' }} />,
         color: 'primary.main',
-        subtitle: `${stats.memberStats.totalMembers} total members`,
+        subtitle: `${stats.memberStats?.totalMembers || 0} total members`,
       },
       {
         title: 'Classes This Week',
@@ -165,7 +215,7 @@ const DashboardPage = () => {
       },
       {
         title: 'Monthly Revenue',
-        value: `$${stats.monthlyRecurringRevenue.toLocaleString()}`,
+        value: `$${(stats.monthlyRecurringRevenue || 0).toLocaleString()}`,
         icon: <AttachMoneyIcon sx={{ fontSize: 40, color: 'success.main' }} />,
         color: 'success.main',
         subtitle: 'Recurring subscriptions',
@@ -180,7 +230,7 @@ const DashboardPage = () => {
     ];
   }, [stats]);
 
-  // Secondary metrics
+  // Secondary metrics - with safe access
   const secondaryMetrics = useMemo(() => {
     if (!stats) return [];
 
@@ -197,7 +247,7 @@ const DashboardPage = () => {
       },
       {
         label: 'New Members This Month',
-        value: stats.memberStats.newThisMonth,
+        value: stats.memberStats?.newThisMonth || 0,
         icon: <PersonIcon />,
       },
       {
@@ -360,7 +410,7 @@ const DashboardPage = () => {
                     <Typography variant="body2">Active Members</Typography>
                   </Box>
                   <Typography variant="h6" color="success.main" fontWeight="bold">
-                    {stats?.memberStats.activeMembers}
+                    {stats?.memberStats?.activeMembers || 0}
                   </Typography>
                 </Box>
                 
@@ -370,7 +420,7 @@ const DashboardPage = () => {
                     <Typography variant="body2">Paused Members</Typography>
                   </Box>
                   <Typography variant="h6" color="warning.main" fontWeight="bold">
-                    {stats?.memberStats.pausedMembers}
+                    {stats?.memberStats?.pausedMembers || 0}
                   </Typography>
                 </Box>
                 
@@ -380,7 +430,7 @@ const DashboardPage = () => {
                     <Typography variant="body2">Overdue Members</Typography>
                   </Box>
                   <Typography variant="h6" color="error.main" fontWeight="bold">
-                    {stats?.memberStats.overdueMembers}
+                    {stats?.memberStats?.overdueMembers || 0}
                   </Typography>
                 </Box>
                 
@@ -391,7 +441,7 @@ const DashboardPage = () => {
                     Total Members
                   </Typography>
                   <Typography variant="h5" color="primary.main" fontWeight="bold">
-                    {stats?.memberStats.totalMembers}
+                    {stats?.memberStats?.totalMembers || 0}
                   </Typography>
                 </Box>
               </Box>
@@ -407,28 +457,28 @@ const DashboardPage = () => {
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <Typography variant="body2">Individual Classes</Typography>
                   <Typography variant="h6" fontWeight="bold">
-                    {stats?.totalClasses}
+                    {stats?.totalClasses || 0}
                   </Typography>
                 </Box>
                 
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <Typography variant="body2">Class Packages</Typography>
                   <Typography variant="h6" fontWeight="bold">
-                    {stats?.totalPackages}
+                    {stats?.totalPackages || 0}
                   </Typography>
                 </Box>
                 
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <Typography variant="body2">Upcoming Classes</Typography>
                   <Typography variant="h6" fontWeight="bold">
-                    {stats?.upcomingClasses}
+                    {stats?.upcomingClasses || 0}
                   </Typography>
                 </Box>
                 
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <Typography variant="body2">Active Discounts</Typography>
                   <Typography variant="h6" fontWeight="bold">
-                    {stats?.activeDiscounts}
+                    {stats?.activeDiscounts || 0}
                   </Typography>
                 </Box>
                 
@@ -439,7 +489,7 @@ const DashboardPage = () => {
                     Total Enrollment
                   </Typography>
                   <Typography variant="h5" color="secondary.main" fontWeight="bold">
-                    {stats?.totalEnrollment}
+                    {stats?.totalEnrollment || 0}
                   </Typography>
                 </Box>
               </Box>
