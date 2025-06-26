@@ -1,4 +1,4 @@
-// src/pages/MembersPage.tsx - Enhanced with Belt/Level Management
+// src/pages/MembersPage.tsx - Fixed props issues
 
 import React, { useState, useMemo } from 'react';
 import {
