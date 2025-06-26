@@ -4,7 +4,8 @@ import { useRoleControl, UserRole } from '../hooks/useRoleControl';
 
 interface ProtectedComponentProps {
   children: React.ReactNode;
-  allowedRoles: UserRole[];
+  allowedRoles?: UserRole[];
+  requiredRole?: UserRole; // Tek role için kolaylık
   fallbackComponent?: React.ReactNode;
   showFallback?: boolean;
 }
@@ -12,6 +13,7 @@ interface ProtectedComponentProps {
 const ProtectedComponent: React.FC<ProtectedComponentProps> = ({ 
   children, 
   allowedRoles, 
+  requiredRole,
   fallbackComponent = null,
   showFallback = false
 }) => {
@@ -21,8 +23,11 @@ const ProtectedComponent: React.FC<ProtectedComponentProps> = ({
     return null;
   }
 
+  // allowedRoles veya requiredRole'den birini kullan
+  const rolesToCheck = allowedRoles || (requiredRole ? [requiredRole] : []);
+
   // Eğer izin yoksa hiçbir şey gösterme (varsayılan davranış)
-  if (!userData || !allowedRoles.includes(userData.role)) {
+  if (!userData || !rolesToCheck.includes(userData.role)) {
     return showFallback ? <>{fallbackComponent}</> : null;
   }
 

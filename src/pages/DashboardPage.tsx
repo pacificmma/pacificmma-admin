@@ -1,4 +1,4 @@
-// src/pages/DashboardPage.tsx - Düzeltilmiş versiyon
+// src/pages/DashboardPage.tsx - CSS Grid ile düzeltilmiş versiyon
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   Typography,
@@ -7,7 +7,6 @@ import {
   Paper,
   CircularProgress,
   Alert,
-  Grid,
   Card,
   CardContent,
   Chip,
@@ -28,7 +27,7 @@ import ProtectedComponent from '../components/ProtectedComponent';
 import { useRoleControl } from '../hooks/useRoleControl';
 import { getAllClasses, getAllPackages, ClassRecord, PackageRecord } from '../services/classService';
 import { getMemberStats } from '../services/memberService';
-import { getAllDiscounts, DiscountRecord } from '../services/discountService';
+import { getAllDiscounts } from '../services/discountService';
 import { format, isToday, isTomorrow, addDays, startOfWeek, endOfWeek } from 'date-fns';
 
 interface DashboardStats {
@@ -289,7 +288,8 @@ const DashboardPage = () => {
   return (
     <ProtectedComponent 
       allowedRoles={['admin']}
-      fallback={
+      showFallback={true}
+      fallbackComponent={
         <Container maxWidth="xl" sx={{ py: 4, textAlign: 'center' }}>
           <Typography variant="h5" color="text.secondary" sx={{ mb: 2 }}>
             Access Restricted
@@ -339,163 +339,169 @@ const DashboardPage = () => {
           </Button>
         </Box>
 
-        {/* Main Stats Grid */}
-        <Grid container spacing={3} sx={{ mb: 4 }}>
+        {/* Main Stats Grid - CSS Grid ile düzeltilmiş */}
+        <Box sx={{ 
+          display: 'grid', 
+          gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', lg: 'repeat(4, 1fr)' }, 
+          gap: 3,
+          mb: 4 
+        }}>
           {quickStats.map((stat, index) => (
-            <Grid item xs={12} sm={6} md={3} key={index}>
-              <Card sx={{ height: '100%', border: 1, borderColor: 'divider' }}>
-                <CardContent sx={{ p: 3, textAlign: 'center' }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', mb: 2 }}>
-                    {stat.icon}
-                  </Box>
-                  <Typography variant="h4" sx={{ color: stat.color, fontWeight: 'bold', mb: 1 }}>
-                    {stat.value}
-                  </Typography>
-                  <Typography variant="h6" color="text.primary" sx={{ mb: 1 }}>
-                    {stat.title}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    {stat.subtitle}
-                  </Typography>
-                </CardContent>
-              </Card>
-            </Grid>
+            <Card key={index} sx={{ height: '100%', border: 1, borderColor: 'divider' }}>
+              <CardContent sx={{ p: 3, textAlign: 'center' }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', mb: 2 }}>
+                  {stat.icon}
+                </Box>
+                <Typography variant="h4" sx={{ color: stat.color, fontWeight: 'bold', mb: 1 }}>
+                  {stat.value}
+                </Typography>
+                <Typography variant="h6" color="text.primary" sx={{ mb: 1 }}>
+                  {stat.title}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  {stat.subtitle}
+                </Typography>
+              </CardContent>
+            </Card>
           ))}
-        </Grid>
+        </Box>
 
         {/* Secondary Metrics */}
         <Paper sx={{ p: 3, mb: 4 }}>
           <Typography variant="h6" sx={{ mb: 3, fontWeight: 600 }}>
             Quick Metrics
           </Typography>
-          <Grid container spacing={3}>
+          <Box sx={{ 
+            display: 'grid', 
+            gridTemplateColumns: { xs: 'repeat(2, 1fr)', sm: 'repeat(4, 1fr)' }, 
+            gap: 3 
+          }}>
             {secondaryMetrics.map((metric, index) => (
-              <Grid item xs={6} sm={3} key={index}>
-                <Box sx={{ 
-                  display: 'flex', 
-                  alignItems: 'center', 
-                  p: 2, 
-                  bgcolor: 'grey.50', 
-                  borderRadius: 1,
-                  textAlign: 'center',
-                  flexDirection: 'column',
-                  gap: 1,
-                }}>
-                  <Box sx={{ color: 'primary.main' }}>
-                    {metric.icon}
-                  </Box>
-                  <Typography variant="h6" color="primary" fontWeight="bold">
-                    {metric.value}
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary" textAlign="center">
-                    {metric.label}
-                  </Typography>
+              <Box key={index} sx={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                p: 2, 
+                bgcolor: 'grey.50', 
+                borderRadius: 1,
+                textAlign: 'center',
+                flexDirection: 'column',
+                gap: 1,
+              }}>
+                <Box sx={{ color: 'primary.main' }}>
+                  {metric.icon}
                 </Box>
-              </Grid>
+                <Typography variant="h6" color="primary" fontWeight="bold">
+                  {metric.value}
+                </Typography>
+                <Typography variant="caption" color="text.secondary" textAlign="center">
+                  {metric.label}
+                </Typography>
+              </Box>
             ))}
-          </Grid>
+          </Box>
         </Paper>
 
         {/* Member Status Breakdown */}
-        <Grid container spacing={3} sx={{ mb: 4 }}>
-          <Grid item xs={12} md={6}>
-            <Paper sx={{ p: 3, height: '100%' }}>
-              <Typography variant="h6" sx={{ mb: 3, fontWeight: 600 }}>
-                Member Status Breakdown
-              </Typography>
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <Chip label="Active" color="success" size="small" />
-                    <Typography variant="body2">Active Members</Typography>
-                  </Box>
-                  <Typography variant="h6" color="success.main" fontWeight="bold">
-                    {stats?.memberStats?.activeMembers || 0}
-                  </Typography>
+        <Box sx={{ 
+          display: 'grid', 
+          gridTemplateColumns: { xs: '1fr', md: 'repeat(2, 1fr)' }, 
+          gap: 3,
+          mb: 4 
+        }}>
+          <Paper sx={{ p: 3, height: '100%' }}>
+            <Typography variant="h6" sx={{ mb: 3, fontWeight: 600 }}>
+              Member Status Breakdown
+            </Typography>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Chip label="Active" color="success" size="small" />
+                  <Typography variant="body2">Active Members</Typography>
                 </Box>
-                
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <Chip label="Paused" color="warning" size="small" />
-                    <Typography variant="body2">Paused Members</Typography>
-                  </Box>
-                  <Typography variant="h6" color="warning.main" fontWeight="bold">
-                    {stats?.memberStats?.pausedMembers || 0}
-                  </Typography>
-                </Box>
-                
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <Chip label="Overdue" color="error" size="small" />
-                    <Typography variant="body2">Overdue Members</Typography>
-                  </Box>
-                  <Typography variant="h6" color="error.main" fontWeight="bold">
-                    {stats?.memberStats?.overdueMembers || 0}
-                  </Typography>
-                </Box>
-                
-                <Divider />
-                
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Typography variant="body1" fontWeight={600}>
-                    Total Members
-                  </Typography>
-                  <Typography variant="h5" color="primary.main" fontWeight="bold">
-                    {stats?.memberStats?.totalMembers || 0}
-                  </Typography>
-                </Box>
+                <Typography variant="h6" color="success.main" fontWeight="bold">
+                  {stats?.memberStats?.activeMembers || 0}
+                </Typography>
               </Box>
-            </Paper>
-          </Grid>
+              
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Chip label="Paused" color="warning" size="small" />
+                  <Typography variant="body2">Paused Members</Typography>
+                </Box>
+                <Typography variant="h6" color="warning.main" fontWeight="bold">
+                  {stats?.memberStats?.pausedMembers || 0}
+                </Typography>
+              </Box>
+              
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Chip label="Overdue" color="error" size="small" />
+                  <Typography variant="body2">Overdue Members</Typography>
+                </Box>
+                <Typography variant="h6" color="error.main" fontWeight="bold">
+                  {stats?.memberStats?.overdueMembers || 0}
+                </Typography>
+              </Box>
+              
+              <Divider />
+              
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Typography variant="body1" fontWeight={600}>
+                  Total Members
+                </Typography>
+                <Typography variant="h5" color="primary.main" fontWeight="bold">
+                  {stats?.memberStats?.totalMembers || 0}
+                </Typography>
+              </Box>
+            </Box>
+          </Paper>
 
-          <Grid item xs={12} md={6}>
-            <Paper sx={{ p: 3, height: '100%' }}>
-              <Typography variant="h6" sx={{ mb: 3, fontWeight: 600 }}>
-                System Overview
-              </Typography>
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Typography variant="body2">Individual Classes</Typography>
-                  <Typography variant="h6" fontWeight="bold">
-                    {stats?.totalClasses || 0}
-                  </Typography>
-                </Box>
-                
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Typography variant="body2">Class Packages</Typography>
-                  <Typography variant="h6" fontWeight="bold">
-                    {stats?.totalPackages || 0}
-                  </Typography>
-                </Box>
-                
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Typography variant="body2">Upcoming Classes</Typography>
-                  <Typography variant="h6" fontWeight="bold">
-                    {stats?.upcomingClasses || 0}
-                  </Typography>
-                </Box>
-                
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Typography variant="body2">Active Discounts</Typography>
-                  <Typography variant="h6" fontWeight="bold">
-                    {stats?.activeDiscounts || 0}
-                  </Typography>
-                </Box>
-                
-                <Divider />
-                
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Typography variant="body1" fontWeight={600}>
-                    Total Enrollment
-                  </Typography>
-                  <Typography variant="h5" color="secondary.main" fontWeight="bold">
-                    {stats?.totalEnrollment || 0}
-                  </Typography>
-                </Box>
+          <Paper sx={{ p: 3, height: '100%' }}>
+            <Typography variant="h6" sx={{ mb: 3, fontWeight: 600 }}>
+              System Overview
+            </Typography>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Typography variant="body2">Individual Classes</Typography>
+                <Typography variant="h6" fontWeight="bold">
+                  {stats?.totalClasses || 0}
+                </Typography>
               </Box>
-            </Paper>
-          </Grid>
-        </Grid>
+              
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Typography variant="body2">Class Packages</Typography>
+                <Typography variant="h6" fontWeight="bold">
+                  {stats?.totalPackages || 0}
+                </Typography>
+              </Box>
+              
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Typography variant="body2">Upcoming Classes</Typography>
+                <Typography variant="h6" fontWeight="bold">
+                  {stats?.upcomingClasses || 0}
+                </Typography>
+              </Box>
+              
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Typography variant="body2">Active Discounts</Typography>
+                <Typography variant="h6" fontWeight="bold">
+                  {stats?.activeDiscounts || 0}
+                </Typography>
+              </Box>
+              
+              <Divider />
+              
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Typography variant="body1" fontWeight={600}>
+                  Total Enrollment
+                </Typography>
+                <Typography variant="h5" color="secondary.main" fontWeight="bold">
+                  {stats?.totalEnrollment || 0}
+                </Typography>
+              </Box>
+            </Box>
+          </Paper>
+        </Box>
 
         {/* Quick Actions */}
         <Paper sx={{ p: 3 }}>

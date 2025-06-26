@@ -40,6 +40,7 @@ import LocalOfferIcon from '@mui/icons-material/LocalOffer';
 import StarIcon from '@mui/icons-material/Star';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import FitnessCenterIcon from '@mui/icons-material/FitnessCenter';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 
 import MembershipPackageForm from '../components/MembershipPackageForm';
 import ProtectedComponent from '../components/ProtectedComponent';
@@ -54,8 +55,10 @@ import {
   updateMembershipPackage,
   deleteMembershipPackage,
   getPackageUsageStats,
+  cloneMembershipPackage,
   SPORT_CATEGORIES,
 } from '../services/membershipPackageService';
+import { useAuth } from '../contexts/AuthContext';
 
 const MembershipPackagesPage = () => {
   const [packages, setPackages] = useState<MembershipPackageRecord[]>([]);
@@ -75,6 +78,8 @@ const MembershipPackagesPage = () => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const { isAdmin } = useRoleControl();
+  const { user } = useAuth();
+  const { userData } = useRoleControl();
 
   useEffect(() => {
     loadPackages();
@@ -165,11 +170,28 @@ const MembershipPackagesPage = () => {
     handleMenuClose();
   };
 
+  const handleClone = async (pkg: MembershipPackageRecord) => {
+    if (!user || !userData) {
+      setError('You must be logged in to clone packages.');
+      return;
+    }
+
+    try {
+      const newName = `${pkg.name} (Copy)`;
+      await cloneMembershipPackage(pkg.id, newName, userData.uid, userData.fullName);
+      setRefreshTrigger(prev => prev + 1);
+    } catch (error: any) {
+      setError(`Failed to clone package: ${error.message}`);
+    }
+    handleMenuClose();
+  };
+
   const handleDeleteClick = (pkg: MembershipPackageRecord) => {
     setPackageToDelete(pkg);
     setDeleteDialogOpen(true);
     handleMenuClose();
   };
+
   const handleDeleteConfirm = async () => {
     if (!packageToDelete) return;
 
@@ -190,9 +212,9 @@ const MembershipPackagesPage = () => {
 
   const getPriceDisplay = (pkg: MembershipPackageRecord) => {
     if (pkg.durationType === 'months') {
-      return `$${pkg.price}/month`;
+      return `${pkg.price}/month`;
     }
-    return `$${pkg.price} total`;
+    return `${pkg.price} total`;
   };
 
   const getSportCategoriesDisplay = (pkg: MembershipPackageRecord) => {
@@ -332,29 +354,29 @@ const MembershipPackagesPage = () => {
                 Usage Statistics
               </Typography>
               
-              <Grid container spacing={1}>
-                <Grid item xs={6}>
-                  <Box sx={{ textAlign: 'center' }}>
-                    <Typography variant="h6" color="primary.main" fontWeight={600}>
-                      {stats.totalSubscriptions}
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      Subscriptions
-                    </Typography>
-                  </Box>
-                </Grid>
+              <Box sx={{ 
+                display: 'grid', 
+                gridTemplateColumns: 'repeat(2, 1fr)', 
+                gap: 1 
+              }}>
+                <Box sx={{ textAlign: 'center' }}>
+                  <Typography variant="h6" color="primary.main" fontWeight={600}>
+                    {stats.totalSubscriptions}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Subscriptions
+                  </Typography>
+                </Box>
                 
-                <Grid item xs={6}>
-                  <Box sx={{ textAlign: 'center' }}>
-                    <Typography variant="h6" color="success.main" fontWeight={600}>
-                      ${stats.totalRevenue.toLocaleString()}
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      Revenue
-                    </Typography>
-                  </Box>
-                </Grid>
-              </Grid>
+                <Box sx={{ textAlign: 'center' }}>
+                  <Typography variant="h6" color="success.main" fontWeight={600}>
+                    ${stats.totalRevenue.toLocaleString()}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Revenue
+                  </Typography>
+                </Box>
+              </Box>
               
               {stats.averageRating && (
                 <Box sx={{ mt: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.5 }}>
@@ -426,63 +448,60 @@ const MembershipPackagesPage = () => {
       </Box>
 
       {/* Overview Stats */}
-      <Grid container spacing={3} sx={{ mb: 4 }}>
-        <Grid item xs={6} sm={3}>
-          <Paper sx={{ p: 2, textAlign: 'center' }}>
-            <Avatar sx={{ bgcolor: 'primary.main', mx: 'auto', mb: 1 }}>
-              <LocalOfferIcon />
-            </Avatar>
-            <Typography variant="h4" fontWeight={600} color="primary.main">
-              {overviewStats.totalPackages}
-            </Typography>
-            <Typography variant="caption" color="text.secondary">
-              Total Packages
-            </Typography>
-          </Paper>
-        </Grid>
+      <Box sx={{ 
+        display: 'grid', 
+        gridTemplateColumns: { xs: 'repeat(2, 1fr)', sm: 'repeat(4, 1fr)' }, 
+        gap: 3, 
+        mb: 4 
+      }}>
+        <Paper sx={{ p: 2, textAlign: 'center' }}>
+          <Avatar sx={{ bgcolor: 'primary.main', mx: 'auto', mb: 1 }}>
+            <LocalOfferIcon />
+          </Avatar>
+          <Typography variant="h4" fontWeight={600} color="primary.main">
+            {overviewStats.totalPackages}
+          </Typography>
+          <Typography variant="caption" color="text.secondary">
+            Total Packages
+          </Typography>
+        </Paper>
         
-        <Grid item xs={6} sm={3}>
-          <Paper sx={{ p: 2, textAlign: 'center' }}>
-            <Avatar sx={{ bgcolor: 'success.main', mx: 'auto', mb: 1 }}>
-              <TrendingUpIcon />
-            </Avatar>
-            <Typography variant="h4" fontWeight={600} color="success.main">
-              {overviewStats.activePackages}
-            </Typography>
-            <Typography variant="caption" color="text.secondary">
-              Active Packages
-            </Typography>
-          </Paper>
-        </Grid>
+        <Paper sx={{ p: 2, textAlign: 'center' }}>
+          <Avatar sx={{ bgcolor: 'success.main', mx: 'auto', mb: 1 }}>
+            <TrendingUpIcon />
+          </Avatar>
+          <Typography variant="h4" fontWeight={600} color="success.main">
+            {overviewStats.activePackages}
+          </Typography>
+          <Typography variant="caption" color="text.secondary">
+            Active Packages
+          </Typography>
+        </Paper>
         
-        <Grid item xs={6} sm={3}>
-          <Paper sx={{ p: 2, textAlign: 'center' }}>
-            <Avatar sx={{ bgcolor: 'warning.main', mx: 'auto', mb: 1 }}>
-              <GroupIcon />
-            </Avatar>
-            <Typography variant="h4" fontWeight={600} color="warning.main">
-              {overviewStats.totalSubscriptions}
-            </Typography>
-            <Typography variant="caption" color="text.secondary">
-              Total Subscriptions
-            </Typography>
-          </Paper>
-        </Grid>
+        <Paper sx={{ p: 2, textAlign: 'center' }}>
+          <Avatar sx={{ bgcolor: 'warning.main', mx: 'auto', mb: 1 }}>
+            <GroupIcon />
+          </Avatar>
+          <Typography variant="h4" fontWeight={600} color="warning.main">
+            {overviewStats.totalSubscriptions}
+          </Typography>
+          <Typography variant="caption" color="text.secondary">
+            Total Subscriptions
+          </Typography>
+        </Paper>
         
-        <Grid item xs={6} sm={3}>
-          <Paper sx={{ p: 2, textAlign: 'center' }}>
-            <Avatar sx={{ bgcolor: 'info.main', mx: 'auto', mb: 1 }}>
-              <AttachMoneyIcon />
-            </Avatar>
-            <Typography variant="h4" fontWeight={600} color="info.main">
-              ${overviewStats.totalRevenue.toLocaleString()}
-            </Typography>
-            <Typography variant="caption" color="text.secondary">
-              Total Revenue
-            </Typography>
-          </Paper>
-        </Grid>
-      </Grid>
+        <Paper sx={{ p: 2, textAlign: 'center' }}>
+          <Avatar sx={{ bgcolor: 'info.main', mx: 'auto', mb: 1 }}>
+            <AttachMoneyIcon />
+          </Avatar>
+          <Typography variant="h4" fontWeight={600} color="info.main">
+            ${overviewStats.totalRevenue.toLocaleString()}
+          </Typography>
+          <Typography variant="caption" color="text.secondary">
+            Total Revenue
+          </Typography>
+        </Paper>
+      </Box>
 
       {/* Packages Grid */}
       {packages.length === 0 ? (
@@ -500,15 +519,19 @@ const MembershipPackagesPage = () => {
           </ProtectedComponent>
         </Paper>
       ) : (
-        <Grid container spacing={3}>
+        <Box sx={{ 
+          display: 'grid', 
+          gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', lg: 'repeat(3, 1fr)' }, 
+          gap: 3 
+        }}>
           {packages
             .sort((a, b) => a.displayOrder - b.displayOrder)
             .map((pkg) => (
-              <Grid item xs={12} sm={6} lg={4} key={pkg.id}>
+              <Box key={pkg.id}>
                 {renderPackageCard(pkg)}
-              </Grid>
+              </Box>
             ))}
-        </Grid>
+        </Box>
       )}
 
       {/* Mobile FAB */}
@@ -538,6 +561,11 @@ const MembershipPackagesPage = () => {
         <MenuItemComponent onClick={() => selectedPackage && handleEdit(selectedPackage)}>
           <EditIcon sx={{ mr: 1, fontSize: 20 }} />
           Edit Package
+        </MenuItemComponent>
+        
+        <MenuItemComponent onClick={() => selectedPackage && handleClone(selectedPackage)}>
+          <ContentCopyIcon sx={{ mr: 1, fontSize: 20 }} />
+          Clone Package
         </MenuItemComponent>
         
         <MenuItemComponent onClick={() => selectedPackage && handleToggleStatus(selectedPackage)}>

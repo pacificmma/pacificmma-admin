@@ -6,6 +6,7 @@ import MySchedulePage from '../pages/MySchedulePage';
 import DashboardPage from '../pages/DashboardPage';
 import MembersPage from '../pages/MembersPage';
 import DiscountsPage from '../pages/DiscountsPage';
+import MembershipPackagesPage from '../pages/MemberShipPackagePage';
 
 const AppRoutes = () => (
   <Routes>
@@ -26,6 +27,8 @@ const AppRoutes = () => (
       <Route path="/members" element={<MembersPage />} />
       <Route path="/discounts" element={<DiscountsPage />} />
       <Route path="/staff" element={<StaffPage />} />
+      <Route path="/memberships" element={<MembershipPackagesPage />} />
+      
       
       {/* Catch all - redirect to classes */}
       <Route path="*" element={<Navigate to="/classes" replace />} />

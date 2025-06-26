@@ -383,24 +383,3 @@ export interface PackageSearchParams {
   page?: number;
   limit?: number;
 }
-
-export default {
-  MembershipPackageFormData,
-  MembershipPackageRecord,
-  PackageUsageStats,
-  SportCategoryDefinition,
-  MembershipSubscription,
-  PackageInquiry,
-  PackageReview,
-  PackageComparison,
-  PackagePromotion,
-  PackageAnalytics,
-  PackageValidationRules,
-  DEFAULT_VALIDATION_RULES,
-  PackageFormErrors,
-  PackageListResponse,
-  PackageStatsResponse,
-  PackageFilterOptions,
-  PackageSortOptions,
-  PackageSearchParams,
-};

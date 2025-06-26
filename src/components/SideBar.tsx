@@ -16,6 +16,7 @@ import GroupIcon from '@mui/icons-material/Group';
 import DiscountIcon from '@mui/icons-material/Sell';
 import FitnessCenterIcon from '@mui/icons-material/FitnessCenter';
 import MenuIcon from '@mui/icons-material/Menu';
+import CardMembershipIcon from '@mui/icons-material/CardMembership';
 import { useNavigate, useLocation } from 'react-router-dom';
 import ListItemButton from '@mui/material/ListItemButton';
 import { Button } from '@mui/material';
@@ -59,6 +60,7 @@ const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, handleDrawerToggle }) => 
         if (isAdmin) {
             items.push(
                 { text: 'Members', icon: <GroupIcon />, path: '/members' },
+                { text: 'Memberships', icon: <CardMembershipIcon />, path: '/memberships' },
                 { text: 'Discounts', icon: <DiscountIcon />, path: '/discounts' },
                 { text: 'Staff', icon: <SportsMartialArtsIcon />, path: '/staff' }
             );

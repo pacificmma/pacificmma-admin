@@ -156,24 +156,24 @@ const MembershipPackageForm: React.FC<MembershipPackageFormProps> = ({
 
   const handleInputChange = (field: keyof MembershipPackageFormData, value: any) => {
     setFormData(prev => ({ ...prev, [field]: value }));
-    
+
     // Auto-adjust related fields
     if (field === 'isFullAccess' && value === true) {
       setFormData(prev => ({ ...prev, sportCategories: ['all'] }));
     }
-    
+
     if (field === 'sportCategories' && value.includes('all')) {
       setFormData(prev => ({ ...prev, isFullAccess: true, sportCategories: ['all'] }));
     }
-    
+
     if (field === 'isUnlimited' && value === true) {
-      setFormData(prev => ({ 
-        ...prev, 
-        classLimitPerWeek: undefined, 
-        classLimitPerMonth: undefined 
+      setFormData(prev => ({
+        ...prev,
+        classLimitPerWeek: undefined,
+        classLimitPerMonth: undefined
       }));
     }
-    
+
     if (error) setError(null);
   };
 
@@ -231,7 +231,7 @@ const MembershipPackageForm: React.FC<MembershipPackageFormProps> = ({
       } else {
         await createMembershipPackage(formData, userData.uid, userData.fullName);
       }
-      
+
       handleClose();
     } catch (err: any) {
       console.error('Error saving membership package:', err);
@@ -255,9 +255,9 @@ const MembershipPackageForm: React.FC<MembershipPackageFormProps> = ({
 
   const getPriceDisplay = () => {
     if (formData.durationType === 'months') {
-      return `${formData.price}/month`;
+      return `$${formData.price}/month`;
     }
-    return `${formData.price} total`;
+    return `$${formData.price} total`;
   };
 
   const renderStepContent = (step: number) => {
@@ -290,8 +290,8 @@ const MembershipPackageForm: React.FC<MembershipPackageFormProps> = ({
               size="small"
             />
 
-            <Grid container spacing={2}>
-              <Grid item xs={6}>
+            <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 2 }}>
+              <Box>
                 <TextField
                   label="Duration *"
                   type="number"
@@ -301,9 +301,9 @@ const MembershipPackageForm: React.FC<MembershipPackageFormProps> = ({
                   fullWidth
                   size="small"
                 />
-              </Grid>
-              
-              <Grid item xs={6}>
+              </Box>
+
+              <Box>
                 <FormControl fullWidth size="small">
                   <InputLabel>Duration Type</InputLabel>
                   <Select
@@ -316,8 +316,8 @@ const MembershipPackageForm: React.FC<MembershipPackageFormProps> = ({
                     <MenuItem value="days">Days</MenuItem>
                   </Select>
                 </FormControl>
-              </Grid>
-            </Grid>
+              </Box>
+            </Box>
 
             <TextField
               label="Price *"
@@ -333,35 +333,34 @@ const MembershipPackageForm: React.FC<MembershipPackageFormProps> = ({
               helperText={formData.durationType === 'months' ? 'Monthly price' : 'Total package price'}
             />
 
-            <Grid container spacing={2}>
-              <Grid item xs={6}>
-                <TextField
-                  label="Display Order"
-                  type="number"
-                  value={formData.displayOrder}
-                  onChange={(e) => handleInputChange('displayOrder', parseInt(e.target.value) || 1)}
-                  InputProps={{ inputProps: { min: 1 } }}
-                  fullWidth
-                  size="small"
-                  helperText="Order in package list"
-                />
-              </Grid>
-              
-              <Grid item xs={6}>
-                <FormControl fullWidth size="small">
-                  <InputLabel>Status</InputLabel>
-                  <Select
-                    value={formData.status}
-                    label="Status"
-                    onChange={(e) => handleInputChange('status', e.target.value as MembershipPackageStatus)}
-                  >
-                    <MenuItem value="Active">Active</MenuItem>
-                    <MenuItem value="Inactive">Inactive</MenuItem>
-                    <MenuItem value="Archived">Archived</MenuItem>
-                  </Select>
-                </FormControl>
-              </Grid>
-            </Grid>
+            <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 2 }}>
+
+              <TextField
+                label="Display Order"
+                type="number"
+                value={formData.displayOrder}
+                onChange={(e) => handleInputChange('displayOrder', parseInt(e.target.value) || 1)}
+                InputProps={{ inputProps: { min: 1 } }}
+                fullWidth
+                size="small"
+                helperText="Order in package list"
+              />
+            </Box>
+
+            <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 2 }}>
+              <FormControl fullWidth size="small">
+                <InputLabel>Status</InputLabel>
+                <Select
+                  value={formData.status}
+                  label="Status"
+                  onChange={(e) => handleInputChange('status', e.target.value as MembershipPackageStatus)}
+                >
+                  <MenuItem value="Active">Active</MenuItem>
+                  <MenuItem value="Inactive">Inactive</MenuItem>
+                  <MenuItem value="Archived">Archived</MenuItem>
+                </Select>
+              </FormControl>
+            </Box>
 
             <FormControlLabel
               control={
@@ -387,7 +386,7 @@ const MembershipPackageForm: React.FC<MembershipPackageFormProps> = ({
               <Typography variant="subtitle2" sx={{ mb: 2 }}>
                 Sport Categories Access
               </Typography>
-              
+
               <FormControlLabel
                 control={
                   <Switch
@@ -423,6 +422,7 @@ const MembershipPackageForm: React.FC<MembershipPackageFormProps> = ({
                         label={option.name}
                         {...getTagProps({ index })}
                         size="small"
+                        key={option.id}
                       />
                     ))
                   }
@@ -434,7 +434,7 @@ const MembershipPackageForm: React.FC<MembershipPackageFormProps> = ({
               <Typography variant="subtitle2" sx={{ mb: 2 }}>
                 Usage Limits
               </Typography>
-              
+
               <FormControlLabel
                 control={
                   <Switch
@@ -447,8 +447,8 @@ const MembershipPackageForm: React.FC<MembershipPackageFormProps> = ({
               />
 
               {!formData.isUnlimited && (
-                <Grid container spacing={2}>
-                  <Grid item xs={6}>
+                <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 2 }}>
+                  <Box>
                     <TextField
                       label="Classes per Week"
                       type="number"
@@ -458,9 +458,9 @@ const MembershipPackageForm: React.FC<MembershipPackageFormProps> = ({
                       fullWidth
                       size="small"
                     />
-                  </Grid>
-                  
-                  <Grid item xs={6}>
+                  </Box>
+
+                  <Box>
                     <TextField
                       label="Classes per Month"
                       type="number"
@@ -470,8 +470,8 @@ const MembershipPackageForm: React.FC<MembershipPackageFormProps> = ({
                       fullWidth
                       size="small"
                     />
-                  </Grid>
-                </Grid>
+                  </Box>
+                </Box>
               )}
             </Paper>
 
@@ -500,7 +500,7 @@ const MembershipPackageForm: React.FC<MembershipPackageFormProps> = ({
               <Typography variant="subtitle2" sx={{ mb: 2 }}>
                 Freeze/Pause Policy
               </Typography>
-              
+
               <FormControlLabel
                 control={
                   <Switch
@@ -513,8 +513,8 @@ const MembershipPackageForm: React.FC<MembershipPackageFormProps> = ({
               />
 
               {formData.allowFreeze && (
-                <Grid container spacing={2}>
-                  <Grid item xs={6}>
+                <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 2 }}>
+                  <Box>
                     <TextField
                       label="Max Freeze Months"
                       type="number"
@@ -524,9 +524,9 @@ const MembershipPackageForm: React.FC<MembershipPackageFormProps> = ({
                       fullWidth
                       size="small"
                     />
-                  </Grid>
-                  
-                  <Grid item xs={6}>
+                  </Box>
+
+                  <Box>
                     <TextField
                       label="Min Freeze Weeks"
                       type="number"
@@ -536,8 +536,8 @@ const MembershipPackageForm: React.FC<MembershipPackageFormProps> = ({
                       fullWidth
                       size="small"
                     />
-                  </Grid>
-                </Grid>
+                  </Box>
+                </Box>
               )}
             </Paper>
 
@@ -545,7 +545,7 @@ const MembershipPackageForm: React.FC<MembershipPackageFormProps> = ({
               <Typography variant="subtitle2" sx={{ mb: 2 }}>
                 Renewal & Commitment
               </Typography>
-              
+
               <FormControlLabel
                 control={
                   <Switch
@@ -557,23 +557,23 @@ const MembershipPackageForm: React.FC<MembershipPackageFormProps> = ({
                 sx={{ mb: 2 }}
               />
 
-              <Grid container spacing={2}>
-                <Grid item xs={6}>
+              <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 2 }}>
+                <Box>
                   <TextField
                     label="Renewal Discount %"
                     type="number"
                     value={formData.renewalDiscountPercent || ''}
                     onChange={(e) => handleInputChange('renewalDiscountPercent', parseFloat(e.target.value) || undefined)}
-                    InputProps={{ 
+                    InputProps={{
                       inputProps: { min: 0, max: 100 },
                       endAdornment: <InputAdornment position="end">%</InputAdornment>
                     }}
                     fullWidth
                     size="small"
                   />
-                </Grid>
-                
-                <Grid item xs={6}>
+                </Box>
+
+                <Box>
                   <TextField
                     label="Min Commitment (Months)"
                     type="number"
@@ -583,8 +583,8 @@ const MembershipPackageForm: React.FC<MembershipPackageFormProps> = ({
                     fullWidth
                     size="small"
                   />
-                </Grid>
-              </Grid>
+                </Box>
+              </Box>
 
               <TextField
                 label="Early Termination Fee"
@@ -614,7 +614,7 @@ const MembershipPackageForm: React.FC<MembershipPackageFormProps> = ({
               <Typography variant="h5" fontWeight={600} sx={{ mb: 1 }}>
                 {formData.name}
               </Typography>
-              
+
               <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
                 {formData.isPopular && (
                   <Chip label="Popular" color="warning" size="small" />
@@ -628,43 +628,43 @@ const MembershipPackageForm: React.FC<MembershipPackageFormProps> = ({
 
               <Divider sx={{ my: 2 }} />
 
-              <Grid container spacing={2}>
-                <Grid item xs={6}>
+              <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 2 }}>
+                <Box>
                   <Typography variant="body2" color="text.secondary">
                     Duration
                   </Typography>
                   <Typography variant="body1" fontWeight={600}>
                     {getDurationDisplay()}
                   </Typography>
-                </Grid>
+                </Box>
 
-                <Grid item xs={6}>
+                <Box>
                   <Typography variant="body2" color="text.secondary">
                     Price
                   </Typography>
                   <Typography variant="h6" color="primary.main" fontWeight={600}>
                     {getPriceDisplay()}
                   </Typography>
-                </Grid>
+                </Box>
 
-                <Grid item xs={6}>
+                <Box>
                   <Typography variant="body2" color="text.secondary">
                     Access
                   </Typography>
                   <Typography variant="body1">
                     {formData.isFullAccess ? 'Full Access' : `${formData.sportCategories.length} Sports`}
                   </Typography>
-                </Grid>
+                </Box>
 
-                <Grid item xs={6}>
+                <Box>
                   <Typography variant="body2" color="text.secondary">
                     Usage
                   </Typography>
                   <Typography variant="body1">
                     {formData.isUnlimited ? 'Unlimited' : 'Limited'}
                   </Typography>
-                </Grid>
-              </Grid>
+                </Box>
+              </Box>
 
               {!formData.isFullAccess && formData.sportCategories.length > 0 && (
                 <Box sx={{ mt: 2 }}>
