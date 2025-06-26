@@ -37,11 +37,6 @@ const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, handleDrawerToggle }) => 
     const isMobile = useMediaQuery(theme.breakpoints.down('md'));
     const { isAdmin, isTrainer, isStaff, userData } = useRoleControl();
 
-    // Role-based menu items - sadece izin verilen ögeleri dahil et
-    // src/components/SideBar.tsx - Updated getMenuItems function
-
-    // Existing imports remain the same...
-
     const getMenuItems = () => {
         if (!userData) return [];
 

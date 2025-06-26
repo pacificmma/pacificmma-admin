@@ -5,7 +5,7 @@ import ClassesPage from '../pages/ClassPage';
 import MySchedulePage from '../pages/MySchedulePage';
 import DashboardPage from '../pages/DashboardPage';
 import MembersPage from '../pages/MembersPage';
-// import DiscountsPage from '../pages/Discounts';
+import DiscountsPage from '../pages/DiscountsPage';
 
 const AppRoutes = () => (
   <Routes>
@@ -14,7 +14,7 @@ const AppRoutes = () => (
        <Route path="/my-schedule" element={<MySchedulePage />} />
        <Route path="/dashboard" element={<DashboardPage />} />
       <Route path="/members" element={<MembersPage />} />
-      {/*<Route path="/discounts" element={<DiscountsPage />} /> */}
+      <Route path="/discounts" element={<DiscountsPage />} />
        <Route path="/staff" element={<StaffPage />} />
       <Route path="*" element={<Navigate to="/classes" replace />} />
     </Route>

@@ -31,6 +31,8 @@ import {
   Accordion,
   AccordionSummary,
   AccordionDetails,
+  CircularProgress,
+  Divider,
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import PhotoCameraIcon from '@mui/icons-material/PhotoCamera';
@@ -40,10 +42,12 @@ import WarningIcon from '@mui/icons-material/Warning';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import RepeatIcon from '@mui/icons-material/Repeat';
 import EventIcon from '@mui/icons-material/Event';
+import LocalOfferIcon from '@mui/icons-material/LocalOffer';
 import { DatePicker, TimePicker } from '@mui/x-date-pickers';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { createClass, updateClass, getInstructors, ClassData, createPackage, PackageData } from '../services/classService';
+import { previewDiscountCode, formatDiscountDisplay } from '../utils/discountUtils';
 import { addDays, format, addWeeks, addMonths } from 'date-fns';
 import {
   optimizeImage,
@@ -52,6 +56,7 @@ import {
   DEFAULT_CLASS_IMAGE_OPTIONS,
   OptimizedImageResult
 } from '../utils/imageUtils';
+import { useRoleControl } from '../hooks/useRoleControl';
 
 interface ClassFormProps {
   open: boolean;
@@ -114,6 +119,12 @@ const ClassForm: React.FC<ClassFormProps> = ({ open, onClose, editData }) => {
   // Paket fiyatı için ayrı state
   const [packagePrice, setPackagePrice] = useState<number>(0);
 
+  // Discount state
+  const [discountCode, setDiscountCode] = useState<string>('');
+  const [discountValidation, setDiscountValidation] = useState<any>(null);
+  const [discountLoading, setDiscountLoading] = useState(false);
+  const [showDiscountSection, setShowDiscountSection] = useState(false);
+
   const [originalImageFile, setOriginalImageFile] = useState<File | null>(null);
   const [optimizedImage, setOptimizedImage] = useState<OptimizedImageResult | null>(null);
   const [imagePreview, setImagePreview] = useState<string>('');
@@ -125,6 +136,7 @@ const ClassForm: React.FC<ClassFormProps> = ({ open, onClose, editData }) => {
 
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+  const { isAdmin } = useRoleControl();
 
   useEffect(() => {
     if (open) {
@@ -164,6 +176,11 @@ const ClassForm: React.FC<ClassFormProps> = ({ open, onClose, editData }) => {
         instructorName: selectedInstructor?.name || ''
       }));
     }
+
+    // Trigger discount validation if price changes
+    if ((field === 'price' || field === 'type') && discountCode.trim()) {
+      handleDiscountCodeChange(discountCode);
+    }
   };
 
   const handleScheduleChange = (field: keyof ScheduleSettings, value: any) => {
@@ -177,6 +194,60 @@ const ClassForm: React.FC<ClassFormProps> = ({ open, onClose, editData }) => {
         ? prev.daysOfWeek.filter(d => d !== day)
         : [...prev.daysOfWeek, day]
     }));
+  };
+
+  const handleDiscountCodeChange = async (code: string) => {
+    setDiscountCode(code);
+    setDiscountValidation(null);
+
+    if (!code.trim()) {
+      return;
+    }
+
+    // Determine item type and price for validation
+    const itemType = formData.type === 'workshop' ? 'workshop' : 'class';
+    const price = scheduleSettings.scheduleType === 'recurring' ? packagePrice : formData.price;
+
+    if (price <= 0) {
+      return;
+    }
+
+    setDiscountLoading(true);
+    try {
+      const validation = await previewDiscountCode(
+        code,
+        scheduleSettings.scheduleType === 'recurring' ? 'package' : itemType,
+        'temp-id', // We don't have ID yet, but validation can work without it for most cases
+        price
+      );
+
+      setDiscountValidation(validation);
+    } catch (error) {
+      console.error('Error validating discount:', error);
+      setDiscountValidation({
+        isValid: false,
+        error: 'Failed to validate discount code'
+      });
+    } finally {
+      setDiscountLoading(false);
+    }
+  };
+
+  const getFinalPrice = () => {
+    const basePrice = scheduleSettings.scheduleType === 'recurring' ? packagePrice : formData.price;
+    
+    if (discountValidation?.isValid && discountValidation.finalAmount !== undefined) {
+      return discountValidation.finalAmount;
+    }
+    
+    return basePrice;
+  };
+
+  const getDiscountAmount = () => {
+    if (discountValidation?.isValid && discountValidation.discountAmount !== undefined) {
+      return discountValidation.discountAmount;
+    }
+    return 0;
   };
 
   const handleImageChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -365,6 +436,9 @@ const ClassForm: React.FC<ClassFormProps> = ({ open, onClose, editData }) => {
     setImagePreview('');
     setError(null);
     setImageError(null);
+    setDiscountCode('');
+    setDiscountValidation(null);
+    setShowDiscountSection(false);
   };
 
   return (
@@ -636,7 +710,10 @@ const ClassForm: React.FC<ClassFormProps> = ({ open, onClose, editData }) => {
                   type="number"
                   fullWidth
                   value={formData.price}
-                  onChange={(e) => handleInputChange('price', parseFloat(e.target.value) || 0)}
+                  onChange={(e) => {
+                    const newPrice = parseFloat(e.target.value) || 0;
+                    handleInputChange('price', newPrice);
+                  }}
                   variant="outlined"
                   size={isMobile ? "small" : "medium"}
                   InputProps={{
@@ -754,7 +831,14 @@ const ClassForm: React.FC<ClassFormProps> = ({ open, onClose, editData }) => {
                     type="number"
                     fullWidth
                     value={packagePrice}
-                    onChange={(e) => setPackagePrice(parseFloat(e.target.value) || 0)}
+                    onChange={(e) => {
+                      const newPrice = parseFloat(e.target.value) || 0;
+                      setPackagePrice(newPrice);
+                      // Trigger discount validation if discount code exists
+                      if (discountCode.trim()) {
+                        handleDiscountCodeChange(discountCode);
+                      }
+                    }}
                     variant="outlined"
                     size={isMobile ? "small" : "medium"}
                     InputProps={{
@@ -835,6 +919,121 @@ const ClassForm: React.FC<ClassFormProps> = ({ open, onClose, editData }) => {
               />
             </Box>
           </Box>
+
+          {/* Discount Section - Only for Admin */}
+          {isAdmin && (
+            <Paper sx={{ mt: 3, p: 2 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+                <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <LocalOfferIcon />
+                  Apply Discount Code
+                </Typography>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  onClick={() => setShowDiscountSection(!showDiscountSection)}
+                >
+                  {showDiscountSection ? 'Hide' : 'Show'}
+                </Button>
+              </Box>
+
+              {showDiscountSection && (
+                <Box>
+                  <Box sx={{ display: 'flex', gap: 2, mb: 2, alignItems: 'flex-start' }}>
+                    <TextField
+                      label="Discount Code"
+                      value={discountCode}
+                      onChange={(e) => handleDiscountCodeChange(e.target.value.toUpperCase())}
+                      size="small"
+                      sx={{ flex: 1 }}
+                      placeholder="Enter discount code (e.g., SAVE20)"
+                      disabled={discountLoading}
+                    />
+                    <Button
+                      variant="outlined"
+                      onClick={() => handleDiscountCodeChange(discountCode)}
+                      disabled={!discountCode.trim() || discountLoading}
+                      size="small"
+                      sx={{ mt: 0.5 }}
+                    >
+                      {discountLoading ? <CircularProgress size={20} /> : 'Validate'}
+                    </Button>
+                  </Box>
+
+                  {/* Discount Validation Results */}
+                  {discountValidation && (
+                    <Box sx={{ mb: 2 }}>
+                      {discountValidation.isValid ? (
+                        <Alert severity="success" sx={{ mb: 1 }}>
+                          <Typography variant="body2" fontWeight={600}>
+                            Valid Discount: {formatDiscountDisplay(
+                              discountValidation.discount.type, 
+                              discountValidation.discount.value
+                            )}
+                          </Typography>
+                          <Typography variant="body2">
+                            {discountValidation.discount.name}
+                          </Typography>
+                        </Alert>
+                      ) : (
+                        <Alert severity="error" sx={{ mb: 1 }}>
+                          <Typography variant="body2">
+                            {discountValidation.error}
+                          </Typography>
+                        </Alert>
+                      )}
+                    </Box>
+                  )}
+
+                  {/* Price Summary with Discount */}
+                  {(formData.price > 0 || packagePrice > 0) && (
+                    <Box sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
+                      <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1 }}>
+                        Price Summary:
+                      </Typography>
+                      
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                        <Typography variant="body2">
+                          {scheduleSettings.scheduleType === 'recurring' ? 'Package Price:' : 'Class Price:'}
+                        </Typography>
+                        <Typography variant="body2">
+                          ${scheduleSettings.scheduleType === 'recurring' ? packagePrice : formData.price}
+                        </Typography>
+                      </Box>
+
+                      {getDiscountAmount() > 0 && (
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1, color: 'success.main' }}>
+                          <Typography variant="body2">
+                            Discount ({discountCode}):
+                          </Typography>
+                          <Typography variant="body2">
+                            -${getDiscountAmount()}
+                          </Typography>
+                        </Box>
+                      )}
+
+                      <Divider sx={{ my: 1 }} />
+                      
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <Typography variant="body1" fontWeight={600}>
+                          Final Price:
+                        </Typography>
+                        <Typography variant="body1" fontWeight={600} color="primary.main">
+                          ${getFinalPrice()}
+                        </Typography>
+                      </Box>
+
+                      {getDiscountAmount() > 0 && (
+                        <Typography variant="caption" color="success.main" sx={{ display: 'block', textAlign: 'right', mt: 0.5 }}>
+                          You save ${getDiscountAmount()}!
+                        </Typography>
+                      )}
+                    </Box>
+                  )}
+                </Box>
+              )}
+            </Paper>
+          )}
         </DialogContent>
 
         <DialogActions sx={{
