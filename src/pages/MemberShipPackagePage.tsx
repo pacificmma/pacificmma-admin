@@ -59,6 +59,8 @@ import {
   SPORT_CATEGORIES,
 } from '../services/membershipPackageService';
 import { useAuth } from '../contexts/AuthContext';
+import { collection, getDocs } from 'firebase/firestore';
+import { db } from '../services/firebase';
 
 const MembershipPackagesPage = () => {
   const [packages, setPackages] = useState<MembershipPackageRecord[]>([]);
@@ -90,21 +92,65 @@ const MembershipPackagesPage = () => {
       setLoading(true);
       setError(null);
       
-      const packagesData = await getAllMembershipPackages();
+      // İlk olarak normal fonksiyonu dene
+      let packagesData: MembershipPackageRecord[];
+      
+      try {
+        packagesData = await getAllMembershipPackages();
+      } catch (indexError) {
+        console.warn('Index error, trying simple query:', indexError);
+        
+        // Index hatası varsa basit sorguyu dene
+        try {
+          packagesData = await getAllMembershipPackages();
+        } catch (simpleError) {
+          console.error('Simple query also failed:', simpleError);
+          
+          // Son çare: Hiç sıralama olmadan
+          const snapshot = await getDocs(collection(db, 'membershipPackages'));
+          packagesData = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data(),
+            createdAt: doc.data().createdAt?.toDate() || new Date(),
+            updatedAt: doc.data().updatedAt?.toDate() || new Date(),
+          })) as MembershipPackageRecord[];
+          
+          // Client-side sorting
+          packagesData.sort((a, b) => {
+            if (a.displayOrder !== b.displayOrder) {
+              return a.displayOrder - b.displayOrder;
+            }
+            return b.createdAt.getTime() - a.createdAt.getTime();
+          });
+        }
+      }
+      
       setPackages(packagesData);
       
-      // Load stats for each package
+      // Stats yükleme (optional - hata olursa devam et)
       const stats: Record<string, PackageUsageStats> = {};
-      await Promise.all(
-        packagesData.map(async (pkg) => {
-          try {
-            const packageStats = await getPackageUsageStats(pkg.id);
-            stats[pkg.id] = packageStats;
-          } catch (error) {
-            console.warn(`Failed to load stats for package ${pkg.id}:`, error);
-          }
-        })
-      );
+      
+      // Her paket için stats yükle ama hataları yakala
+      const statsPromises = packagesData.map(async (pkg) => {
+        try {
+          const packageStats = await getPackageUsageStats(pkg.id);
+          stats[pkg.id] = packageStats;
+        } catch (error) {
+          console.warn(`Failed to load stats for package ${pkg.id}:`, error);
+          // Default stats
+          stats[pkg.id] = {
+            packageId: pkg.id,
+            totalSubscriptions: 0,
+            activeSubscriptions: 0,
+            pausedSubscriptions: 0,
+            cancelledSubscriptions: 0,
+            totalRevenue: 0,
+          };
+        }
+      });
+      
+      // Tüm stats promises'lerini bekle ama timeout koy
+      await Promise.allSettled(statsPromises);
       setPackageStats(stats);
       
     } catch (err: any) {

@@ -256,19 +256,29 @@ export const getMembershipPackage = async (packageId: string): Promise<Membershi
 };
 
 /**
- * Get all membership packages
+ * Get all membership packages - Updated to avoid index issues
  */
 export const getAllMembershipPackages = async (): Promise<MembershipPackageRecord[]> => {
   try {
+    // Basit sorgu - sadece tek bir orderBy kullan
     const packagesQuery = query(
       collection(db, PACKAGES_COLLECTION),
-      orderBy('displayOrder', 'asc'),
-      orderBy('createdAt', 'desc')
+      orderBy('displayOrder', 'asc')
     );
     
     const snapshot = await getDocs(packagesQuery);
     
-    return snapshot.docs.map(convertDocToPackageRecord);
+    const packages = snapshot.docs.map(convertDocToPackageRecord);
+    
+    // Client-side sorting için createdAt'a göre sıralama
+    return packages.sort((a, b) => {
+      // Önce displayOrder'a göre sırala
+      if (a.displayOrder !== b.displayOrder) {
+        return a.displayOrder - b.displayOrder;
+      }
+      // Sonra createdAt'a göre (yeni olanlar önce)
+      return b.createdAt.getTime() - a.createdAt.getTime();
+    });
   } catch (error) {
     console.error('Error getting membership packages:', error);
     throw new Error('Failed to get membership packages');
@@ -276,10 +286,11 @@ export const getAllMembershipPackages = async (): Promise<MembershipPackageRecor
 };
 
 /**
- * Get active membership packages only
+ * Get active membership packages only - Updated
  */
 export const getActiveMembershipPackages = async (): Promise<MembershipPackageRecord[]> => {
   try {
+    // Sadece status filtresi ve tek orderBy
     const packagesQuery = query(
       collection(db, PACKAGES_COLLECTION),
       where('status', '==', 'Active'),
@@ -291,7 +302,15 @@ export const getActiveMembershipPackages = async (): Promise<MembershipPackageRe
     return snapshot.docs.map(convertDocToPackageRecord);
   } catch (error) {
     console.error('Error getting active membership packages:', error);
-    throw new Error('Failed to get active membership packages');
+    
+    // Fallback: Tüm paketleri al ve client-side filtrele
+    try {
+      const allPackages = await getAllMembershipPackages();
+      return allPackages.filter(pkg => pkg.status === 'Active');
+    } catch (fallbackError) {
+      console.error('Fallback also failed:', fallbackError);
+      throw new Error('Failed to get active membership packages');
+    }
   }
 };
 
